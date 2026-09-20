@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Smart Network Guard</string>
+    <string name="app_name">Network-Firewall</string>
     <string name="app_description">Privacy-first local firewall and data manager</string>
     
     <!-- Navigation -->

@@ -25,12 +25,14 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,6 +71,7 @@ fun FirewallScreen(
     vpnStatus: VpnStatus,
     isGlobalLock: Boolean,
     appUsages: List<AppUsageInfo>,
+    allAppUsages: List<AppUsageInfo> = appUsages,
     searchQuery: String,
     selectedFilter: AppFilter,
     onStartVpn: () -> Unit,
@@ -85,6 +88,8 @@ fun FirewallScreen(
     onResetRule: (String) -> Unit,
     onBlockAll: () -> Unit,
     onAllowAll: () -> Unit,
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var activeLimitRule by remember { mutableStateOf<AppRule?>(null) }
@@ -92,8 +97,14 @@ fun FirewallScreen(
     val isRunning = vpnStatus == VpnStatus.ACTIVE || vpnStatus == VpnStatus.GLOBAL_LOCKED
     val isPaused = vpnStatus == VpnStatus.PAUSED
 
-    val blockedAppsCount = remember(appUsages) {
-        appUsages.count { it.rule.isWifiBlocked || it.rule.isMobileBlocked }
+    val totalBlockedCount = remember(allAppUsages) {
+        allAppUsages.count { it.rule.isWifiBlocked || it.rule.isMobileBlocked }
+    }
+    val userCount = remember(allAppUsages) {
+        allAppUsages.count { !it.isSystemApp }
+    }
+    val systemCount = remember(allAppUsages) {
+        allAppUsages.count { it.isSystemApp }
     }
 
     LazyColumn(
@@ -170,7 +181,7 @@ fun FirewallScreen(
                                 text = when {
                                     isGlobalLock -> "All apps isolated locally"
                                     isPaused -> "All traffic temporarily permitted"
-                                    isRunning -> "$blockedAppsCount apps filtered locally"
+                                    isRunning -> "$totalBlockedCount apps filtered locally"
                                     else -> "Tap switch to enable protection"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -269,10 +280,10 @@ fun FirewallScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     val filters = listOf(
-                        AppFilter.ALL to "All (${appUsages.size})",
-                        AppFilter.USER to "User (${appUsages.count { !it.isSystemApp }})",
-                        AppFilter.SYSTEM to "System (${appUsages.count { it.isSystemApp }})",
-                        AppFilter.BLOCKED to "Blocked ($blockedAppsCount)"
+                        AppFilter.ALL to "All (${allAppUsages.size})",
+                        AppFilter.USER to "User ($userCount)",
+                        AppFilter.SYSTEM to "System ($systemCount)",
+                        AppFilter.BLOCKED to "Blocked ($totalBlockedCount)"
                     )
                     items(filters) { (filter, label) ->
                         val isSelected = selectedFilter == filter
@@ -287,14 +298,41 @@ fun FirewallScreen(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onBlockAll) {
-                        Text("Block All", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                    TextButton(
+                        onClick = onRefresh,
+                        enabled = !isRefreshing,
+                        modifier = Modifier.testTag("refresh_apps_button")
+                    ) {
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Syncing…", fontSize = 12.sp)
+                        } else {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Sync installed apps",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Sync Apps", fontSize = 12.sp)
+                        }
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    TextButton(onClick = onAllowAll) {
-                        Text("Allow All", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+
+                    Row {
+                        TextButton(onClick = onBlockAll) {
+                            Text("Block All", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        TextButton(onClick = onAllowAll) {
+                            Text("Allow All", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
             }

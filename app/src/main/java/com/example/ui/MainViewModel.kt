@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -104,6 +105,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _backupStatus = MutableStateFlow<String?>(null)
     val backupStatus: StateFlow<String?> = _backupStatus.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     init {
         // Schedule periodic check
@@ -319,6 +323,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setAccentColor(index: Int) {
         viewModelScope.launch {
             prefs.setAccentColorIndex(index)
+        }
+    }
+
+    /**
+     * On-Resume Delta Sync (Background Catch-up):
+     * Queries PackageManager.getInstalledPackages() in background I/O dispatcher
+     * to catch edge-case updates or apps installed during system Doze mode,
+     * merging differences with local Room DB without clearing user-configured rules.
+     */
+    fun syncDeltaInstalledApps() {
+        viewModelScope.launch(Dispatchers.IO) {
+            firewallRepo.syncInstalledApps(blockMobileForNewApps = true)
+        }
+    }
+
+    /**
+     * Manual On-Demand Pull-to-Refresh:
+     * Forces complete state re-query from PackageManager, syncs Room DB,
+     * and updates UI StateFlow immediately.
+     */
+    fun triggerManualRefresh() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isRefreshing.value = true
+            try {
+                firewallRepo.syncInstalledApps(blockMobileForNewApps = true)
+                val allRules = firewallRepo.allRules.first()
+                val rulesMap = allRules.associateBy { it.packageName }
+                _appUsages.value = dataUsageRepo.getAppUsageList(rulesMap)
+                _weeklyHistory.value = dataUsageRepo.get7DayUsageHistory()
+                _hasUsagePermission.value = dataUsageRepo.hasUsageStatsPermission()
+            } finally {
+                delay(400) // Smooth UX feedback for pull-to-refresh
+                _isRefreshing.value = false
+            }
         }
     }
 }

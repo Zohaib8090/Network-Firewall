@@ -36,4 +36,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    /**
+     * On-Resume Delta Sync (Background Catch-up):
+     * Catches updates or apps installed during system Doze mode or outside app lifecycle.
+     */
+    override fun onResume() {
+        super.onResume()
+        viewModel.syncDeltaInstalledApps()
+    }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "Smart Network Guard",
+  "name": "Network-Firewall",
   "description": "Privacy-first local firewall and data manager with per-app network control, real-time analytics, and automated profiles.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

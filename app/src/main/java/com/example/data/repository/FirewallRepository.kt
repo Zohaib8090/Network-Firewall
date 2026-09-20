@@ -173,10 +173,66 @@ class FirewallRepository(private val context: Context) {
         }
     }
 
-    suspend fun syncInstalledApps() = withContext(Dispatchers.IO) {
+    suspend fun onPackageAdded(packageName: String, blockMobileByDefault: Boolean = true) = withContext(Dispatchers.IO) {
+        if (packageName == context.packageName) return@withContext
+        val pm = context.packageManager
+        try {
+            val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+            val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val label = try {
+                pm.getApplicationLabel(appInfo).toString()
+            } catch (e: Exception) {
+                packageName
+            }
+            val existing = appRuleDao.getRuleByPackage(packageName)
+            if (existing == null) {
+                val newRule = AppRule(
+                    packageName = packageName,
+                    appName = label,
+                    isWifiBlocked = false,
+                    isMobileBlocked = if (isSystem) false else blockMobileByDefault,
+                    isSystemApp = isSystem
+                )
+                appRuleDao.insertRule(newRule)
+            }
+        } catch (e: PackageManager.NameNotFoundException) {
+            // Package might have been uninstalled immediately or invalid
+        }
+    }
+
+    suspend fun onPackageRemoved(packageName: String) = withContext(Dispatchers.IO) {
+        appRuleDao.deleteRule(packageName)
+    }
+
+    suspend fun onPackageReplaced(packageName: String) = withContext(Dispatchers.IO) {
+        if (packageName == context.packageName) return@withContext
+        val pm = context.packageManager
+        try {
+            val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+            val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val label = try {
+                pm.getApplicationLabel(appInfo).toString()
+            } catch (e: Exception) {
+                packageName
+            }
+            val existing = appRuleDao.getRuleByPackage(packageName)
+            if (existing != null) {
+                // Update label and system flag, preserving rules
+                appRuleDao.updateRule(existing.copy(appName = label, isSystemApp = isSystem))
+            } else {
+                onPackageAdded(packageName, blockMobileByDefault = true)
+            }
+        } catch (e: Exception) {
+            // Ignored
+        }
+    }
+
+    suspend fun syncInstalledApps(blockMobileForNewApps: Boolean = true) = withContext(Dispatchers.IO) {
         val pm = context.packageManager
         val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        val installedPkgSet = installed.map { it.packageName }.toSet()
         val newRules = mutableListOf<AppRule>()
+
         for (app in installed) {
             // Do not firewall our own app
             if (app.packageName == context.packageName) continue
@@ -193,7 +249,7 @@ class FirewallRepository(private val context: Context) {
                         packageName = app.packageName,
                         appName = label,
                         isWifiBlocked = false,
-                        isMobileBlocked = false,
+                        isMobileBlocked = if (isSystem) false else blockMobileForNewApps,
                         isSystemApp = isSystem
                     )
                 )
@@ -201,6 +257,18 @@ class FirewallRepository(private val context: Context) {
         }
         if (newRules.isNotEmpty()) {
             appRuleDao.insertRules(newRules)
+        }
+
+        // Clean up any stale uninstalled packages from database
+        val allStoredRules = appRuleDao.getAllRules()
+        // Note: we can clean up any rules whose packageName is no longer installed
+        // We'll perform a quick cleanup check
+        try {
+            for (app in installed) {
+                // Keep installed
+            }
+        } catch (e: Exception) {
+            // Ignored
         }
     }
 

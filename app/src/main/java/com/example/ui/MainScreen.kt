@@ -103,6 +103,7 @@ fun MainScreen(
     val blockedCount by viewModel.blockedCount.collectAsStateWithLifecycle()
     val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
     val onDemandEvent by viewModel.onDemandEvent.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     // VPN Permission Launcher
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
@@ -223,6 +224,7 @@ fun MainScreen(
                     vpnStatus = vpnStatus,
                     isGlobalLock = isGlobalLock,
                     appUsages = filteredApps,
+                    allAppUsages = allAppUsages,
                     searchQuery = searchQuery,
                     selectedFilter = selectedFilter,
                     onStartVpn = startVpnAction,
@@ -238,7 +240,9 @@ fun MainScreen(
                     onUpdateLimits = { pkg, daily, weekly, monthly -> viewModel.updateDataLimits(pkg, daily, weekly, monthly) },
                     onResetRule = { pkg -> viewModel.resetAppRule(pkg) },
                     onBlockAll = { viewModel.blockAllApps() },
-                    onAllowAll = { viewModel.allowAllApps() }
+                    onAllowAll = { viewModel.allowAllApps() },
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.triggerManualRefresh() }
                 )
                 1 -> AnalyticsScreen(
                     speedMetrics = speedMetrics,

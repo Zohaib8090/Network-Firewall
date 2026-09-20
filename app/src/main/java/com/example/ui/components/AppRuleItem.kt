@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Speed
@@ -43,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +70,7 @@ fun AppRuleItem(
     onResetRuleClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     val rule = appUsage.rule
     val isWifiBlocked = rule.isWifiBlocked
@@ -74,6 +78,16 @@ fun AppRuleItem(
     val now = System.currentTimeMillis()
     val isTempAllowed = rule.temporaryAccessUntil > now
     val isSessionAllowed = rule.allowSession
+
+    val openApp = {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(appUsage.packageName)
+        if (launchIntent != null) {
+            launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(launchIntent)
+        } else {
+            Toast.makeText(context, "${appUsage.appName} cannot be opened directly", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val cardColor = if (isWifiBlocked && isMobileBlocked) {
         MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
@@ -84,6 +98,7 @@ fun AppRuleItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .clickable { openApp() }
             .testTag("app_item_${appUsage.packageName}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
@@ -288,6 +303,14 @@ fun AppRuleItem(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("Open App") },
+                            onClick = {
+                                showMenu = false
+                                openApp()
+                            },
+                            leadingIcon = { Icon(Icons.Default.Launch, contentDescription = null) }
+                        )
                         DropdownMenuItem(
                             text = { Text("Set Data Limit") },
                             onClick = {
