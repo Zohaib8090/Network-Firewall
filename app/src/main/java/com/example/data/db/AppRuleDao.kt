@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AppRuleDao {
-    @Query("SELECT * FROM app_rules ORDER BY appName ASC")
+    @Query("SELECT * FROM app_rules ORDER BY isPinned DESC, appName ASC")
     fun getAllRules(): Flow<List<AppRule>>
 
     @Query("SELECT * FROM app_rules WHERE packageName = :packageName LIMIT 1")
@@ -30,6 +30,9 @@ interface AppRuleDao {
 
     @Query("UPDATE app_rules SET isWifiBlocked = :blockWifi, isMobileBlocked = :blockMobile WHERE packageName = :packageName")
     suspend fun updateToggles(packageName: String, blockWifi: Boolean, blockMobile: Boolean)
+
+    @Query("UPDATE app_rules SET isPinned = :isPinned WHERE packageName = :packageName")
+    suspend fun setPinned(packageName: String, isPinned: Boolean)
 
     @Query("UPDATE app_rules SET temporaryAccessUntil = :untilTime WHERE packageName = :packageName")
     suspend fun setTemporaryAccess(packageName: String, untilTime: Long)

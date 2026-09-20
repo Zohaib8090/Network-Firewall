@@ -15,7 +15,8 @@ data class AppRule(
     val monthlyLimitBytes: Long = 0L,
     val temporaryAccessUntil: Long = 0L, // Timestamp in epoch ms
     val allowSession: Boolean = false,
-    val notes: String = ""
+    val notes: String = "",
+    val isPinned: Boolean = false
 ) {
     fun isTemporarilyAllowed(currentTime: Long = System.currentTimeMillis()): Boolean {
         return allowSession || (temporaryAccessUntil > currentTime)

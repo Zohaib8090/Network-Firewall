@@ -241,6 +241,7 @@ fun MainScreen(
                     onResetRule = { pkg -> viewModel.resetAppRule(pkg) },
                     onBlockAll = { viewModel.blockAllApps() },
                     onAllowAll = { viewModel.allowAllApps() },
+                    onTogglePin = { pkg, isPinned -> viewModel.setPinned(pkg, isPinned) },
                     isRefreshing = isRefreshing,
                     onRefresh = { viewModel.triggerManualRefresh() }
                 )

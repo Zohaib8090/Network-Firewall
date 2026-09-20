@@ -207,6 +207,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setPinned(packageName: String, isPinned: Boolean) {
+        viewModelScope.launch {
+            firewallRepo.setPinned(packageName, isPinned)
+        }
+    }
+
     fun toggleGlobalInternetLock(enabled: Boolean) {
         viewModelScope.launch {
             prefs.setGlobalInternetLock(enabled)

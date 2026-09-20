@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Wifi
@@ -68,6 +69,7 @@ fun AppRuleItem(
     onTempAccessClick: (minutes: Int) -> Unit,
     onAllowSessionClick: () -> Unit,
     onResetRuleClick: () -> Unit,
+    onTogglePin: (isPinned: Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -165,6 +167,15 @@ fun AppRuleItem(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                        }
+                        if (rule.isPinned) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.PushPin,
+                                contentDescription = "Pinned",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
 
@@ -347,6 +358,14 @@ fun AppRuleItem(
                                 showMenu = false
                                 onResetRuleClick()
                             }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (rule.isPinned) "Unpin from top" else "Pin to top") },
+                            onClick = {
+                                showMenu = false
+                                onTogglePin(!rule.isPinned)
+                            },
+                            leadingIcon = { Icon(Icons.Default.PushPin, contentDescription = null) }
                         )
                     }
                 }

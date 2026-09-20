@@ -88,6 +88,7 @@ fun FirewallScreen(
     onResetRule: (String) -> Unit,
     onBlockAll: () -> Unit,
     onAllowAll: () -> Unit,
+    onTogglePin: (String, Boolean) -> Unit,
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -347,7 +348,8 @@ fun FirewallScreen(
                 onSetLimitClick = { activeLimitRule = app.rule },
                 onTempAccessClick = { min -> onTempAccess(app.packageName, min) },
                 onAllowSessionClick = { onAllowSession(app.packageName) },
-                onResetRuleClick = { onResetRule(app.packageName) }
+                onResetRuleClick = { onResetRule(app.packageName) },
+                onTogglePin = { isPinned -> onTogglePin(app.packageName, isPinned) }
             )
         }
 

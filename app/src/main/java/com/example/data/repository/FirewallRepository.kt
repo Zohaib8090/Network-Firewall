@@ -33,6 +33,10 @@ class FirewallRepository(private val context: Context) {
         appRuleDao.updateToggles(packageName, blockWifi, blockMobile)
     }
 
+    suspend fun setPinned(packageName: String, isPinned: Boolean) {
+        appRuleDao.setPinned(packageName, isPinned)
+    }
+
     suspend fun saveRule(rule: AppRule) {
         appRuleDao.insertRule(rule)
     }

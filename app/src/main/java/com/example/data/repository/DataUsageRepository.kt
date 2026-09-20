@@ -156,7 +156,10 @@ class DataUsageRepository(private val context: Context) {
             )
         }
 
-        resultList.sortedByDescending { it.totalBytesToday }
+        resultList.sortedWith(
+            compareByDescending<AppUsageInfo> { it.rule.isPinned }
+                .thenByDescending { it.totalBytesToday }
+        )
     }
 
     private fun queryNetworkBucket(metered: Int, networkType: Int, startTime: Long, endTime: Long, outMap: MutableMap<Int, Long>) {
