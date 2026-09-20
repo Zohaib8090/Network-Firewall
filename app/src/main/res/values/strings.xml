@@ -1,0 +1,57 @@
+<resources>
+    <string name="app_name">Smart Network Guard</string>
+    <string name="app_description">Privacy-first local firewall and data manager</string>
+    
+    <!-- Navigation -->
+    <string name="nav_firewall">Firewall</string>
+    <string name="nav_monitoring">Monitoring</string>
+    <string name="nav_schedules">Schedules</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Firewall -->
+    <string name="firewall_active">Firewall Active</string>
+    <string name="firewall_inactive">Firewall Inactive</string>
+    <string name="firewall_paused">Firewall Paused</string>
+    <string name="global_lock_active">Global Internet Lock Active</string>
+    <string name="start_firewall">Start Firewall</string>
+    <string name="stop_firewall">Stop Firewall</string>
+    <string name="search_apps">Search apps or packages…</string>
+    <string name="filter_all">All</string>
+    <string name="filter_user">User</string>
+    <string name="filter_system">System</string>
+    <string name="filter_blocked">Blocked</string>
+    <string name="wifi_toggle">Wi-Fi</string>
+    <string name="mobile_toggle">Mobile</string>
+    <string name="set_limit">Set Data Limit</string>
+    <string name="temporary_access">Temp Access</string>
+    
+    <!-- Analytics -->
+    <string name="realtime_bandwidth">Real-Time Bandwidth</string>
+    <string name="data_consumption">Data Consumption</string>
+    <string name="top_consumers">Top Bandwidth Consumers</string>
+    <string name="daily_label">Daily</string>
+    <string name="weekly_label">Weekly</string>
+    <string name="monthly_label">Monthly</string>
+    <string name="wifi_usage">Wi-Fi Usage</string>
+    <string name="mobile_usage">Mobile Usage</string>
+
+    <!-- Profiles & Schedules -->
+    <string name="preset_profiles">Preset Profiles</string>
+    <string name="profile_normal">Normal</string>
+    <string name="profile_work">Study / Work</string>
+    <string name="profile_gaming">Gaming</string>
+    <string name="profile_battery">Battery Saver</string>
+    <string name="profile_offline">Offline Mode</string>
+    <string name="add_schedule">Add Schedule Rule</string>
+    <string name="global_internet_lock">Global Internet Lock</string>
+    <string name="global_lock_subtitle">Block all incoming &amp; outgoing device traffic</string>
+
+    <!-- Popups & Alerts -->
+    <string name="blocked_access_attempt">Blocked Access Attempt</string>
+    <string name="allow_session">Allow for this session</string>
+    <string name="keep_blocked">Keep blocked</string>
+    <string name="always_allow">Always allow</string>
+    <string name="temp_10m">Allow 10 min</string>
+    <string name="temp_30m">Allow 30 min</string>
+    <string name="temp_60m">Allow 60 min</string>
+</resources>
