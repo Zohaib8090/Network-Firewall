@@ -25,6 +25,9 @@ All code lives under `app/src/main/java/com/example/`.
 - `receiver/`: boot auto-start, notification actions (allow 10 min and so on), package install/remove/replace sync, and the alarm receiver.
 - `service/ScheduleWorker.kt`: 15-minute periodic job that reloads the firewall and sends data-limit notifications.
 - `ui/`: a single `MainViewModel` with `MainScreen`, which has 4 tabs (Firewall, Monitoring, Schedules, Settings/Logs), plus dialogs in `ui/components/`.
+  - The app list (`MainViewModel.appUsages`) is an in-memory join (`buildAppUsageList`) of three separately updated sources: installed apps with icons already converted to bitmaps in the background (reloaded only when the set of packages changes or on pull-to-refresh), per-UID usage (refreshed on resume and on refresh), and rules from Room. Don't go back to re-querying PackageManager on every rule change; that was the cause of UI lag.
+  - Wi-Fi/mobile toggles, pin and reset show up at once through `PendingEdit` overrides, which are cleared field by field once Room confirms the change.
+  - Live speed (`speedMetrics`) is only sampled while the Monitoring tab collects it. Don't collect it at the top of `MainScreen`.
 
 ## Conventions
 

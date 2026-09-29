@@ -5,19 +5,19 @@ import android.app.usage.NetworkStats
 import android.app.usage.NetworkStatsManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.TrafficStats
 import android.os.Build
 import android.os.Process
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import com.example.data.model.AppRule
 import com.example.data.model.AppUsageInfo
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import java.util.concurrent.ConcurrentHashMap
 
 data class SpeedMetrics(
     val rxBytesPerSec: Long = 0L,
@@ -33,6 +33,51 @@ data class DayUsageData(
     val totalBytes: Long
 )
 
+data class InstalledApp(
+    val packageName: String,
+    val appName: String,
+    val uid: Int,
+    val isSystemApp: Boolean,
+    val icon: ImageBitmap?
+)
+
+data class UidUsage(
+    val wifiBytesToday: Long = 0L,
+    val mobileBytesToday: Long = 0L,
+    val totalBytesMonth: Long = 0L
+)
+
+/**
+ * Joins installed apps, usage numbers and rules into the list the UI shows. Pure and cheap,
+ * so it can re-run on every rule change without touching PackageManager.
+ */
+fun buildAppUsageList(
+    apps: List<InstalledApp>,
+    usageByUid: Map<Int, UidUsage>,
+    rulesMap: Map<String, AppRule>
+): List<AppUsageInfo> = apps.map { app ->
+    val usage = usageByUid[app.uid] ?: UidUsage()
+    AppUsageInfo(
+        packageName = app.packageName,
+        appName = app.appName,
+        uid = app.uid,
+        isSystemApp = app.isSystemApp,
+        icon = app.icon,
+        wifiBytesToday = usage.wifiBytesToday,
+        mobileBytesToday = usage.mobileBytesToday,
+        totalBytesToday = usage.wifiBytesToday + usage.mobileBytesToday,
+        totalBytesMonth = usage.totalBytesMonth,
+        rule = rulesMap[app.packageName] ?: AppRule(
+            packageName = app.packageName,
+            appName = app.appName,
+            isSystemApp = app.isSystemApp
+        )
+    )
+}.sortedWith(
+    compareByDescending<AppUsageInfo> { it.rule.isPinned }
+        .thenByDescending { it.totalBytesToday }
+)
+
 class DataUsageRepository(private val context: Context) {
     private val networkStatsManager = context.getSystemService(Context.NETWORK_STATS_SERVICE) as? NetworkStatsManager
     private val packageManager = context.packageManager
@@ -40,6 +85,8 @@ class DataUsageRepository(private val context: Context) {
     private var lastRxTotal = TrafficStats.getTotalRxBytes()
     private var lastTxTotal = TrafficStats.getTotalTxBytes()
     private var lastTimestamp = System.currentTimeMillis()
+
+    private val iconCache = ConcurrentHashMap<String, ImageBitmap>()
 
     fun hasUsageStatsPermission(): Boolean {
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
@@ -90,8 +137,44 @@ class DataUsageRepository(private val context: Context) {
         )
     }
 
-    suspend fun getAppUsageList(rulesMap: Map<String, AppRule>): List<AppUsageInfo> = withContext(Dispatchers.IO) {
-        val installedApps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+    /**
+     * Installed apps with labels and icons. Icons are rasterized here, off the main thread,
+     * and cached by package so later reloads only pay for newly installed apps.
+     */
+    suspend fun loadInstalledApps(includeIcons: Boolean = true): List<InstalledApp> = withContext(Dispatchers.IO) {
+        val installedApps = packageManager.getInstalledApplications(0)
+        installedApps.filter { it.packageName != context.packageName }.map { app ->
+            val label = try {
+                packageManager.getApplicationLabel(app).toString()
+            } catch (e: Exception) {
+                app.packageName
+            }
+            InstalledApp(
+                packageName = app.packageName,
+                appName = label,
+                uid = app.uid,
+                isSystemApp = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
+                icon = if (includeIcons) loadIcon(app) else null
+            )
+        }
+    }
+
+    fun clearIconCache() {
+        iconCache.clear()
+    }
+
+    private fun loadIcon(app: ApplicationInfo): ImageBitmap? {
+        iconCache[app.packageName]?.let { return it }
+        val bitmap = try {
+            packageManager.getApplicationIcon(app).toBitmap(ICON_SIZE_PX, ICON_SIZE_PX).asImageBitmap()
+        } catch (e: Exception) {
+            null
+        }
+        if (bitmap != null) iconCache[app.packageName] = bitmap
+        return bitmap
+    }
+
+    suspend fun loadUsageByUid(uids: Collection<Int>): Map<Int, UidUsage> = withContext(Dispatchers.IO) {
         val hasPermission = hasUsageStatsPermission()
 
         val calendar = Calendar.getInstance()
@@ -114,52 +197,21 @@ class DataUsageRepository(private val context: Context) {
             queryNetworkBucket(NetworkStats.Bucket.METERED_ALL, -1, startOfMonth, now, totalMapMonth)
         }
 
-        val resultList = mutableListOf<AppUsageInfo>()
-        for (app in installedApps) {
-            if (app.packageName == context.packageName) continue
-
-            val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            val label = try {
-                packageManager.getApplicationLabel(app).toString()
-            } catch (e: Exception) {
-                app.packageName
-            }
-            val icon = try {
-                packageManager.getApplicationIcon(app)
-            } catch (e: Exception) {
-                null
-            }
-
-            val wifiToday = wifiMapToday[app.uid] ?: TrafficStats.getUidRxBytes(app.uid).coerceAtLeast(0L) / 4
-            val mobileToday = mobileMapToday[app.uid] ?: TrafficStats.getUidTxBytes(app.uid).coerceAtLeast(0L) / 4
-            val monthTotal = totalMapMonth[app.uid] ?: (wifiToday + mobileToday)
-
-            val appRule = rulesMap[app.packageName] ?: AppRule(
-                packageName = app.packageName,
-                appName = label,
-                isSystemApp = isSystem
-            )
-
-            resultList.add(
-                AppUsageInfo(
-                    packageName = app.packageName,
-                    appName = label,
-                    uid = app.uid,
-                    isSystemApp = isSystem,
-                    icon = icon,
-                    wifiBytesToday = wifiToday,
-                    mobileBytesToday = mobileToday,
-                    totalBytesToday = wifiToday + mobileToday,
-                    totalBytesMonth = monthTotal,
-                    rule = appRule
-                )
+        uids.toSet().associateWith { uid ->
+            val wifiToday = wifiMapToday[uid] ?: TrafficStats.getUidRxBytes(uid).coerceAtLeast(0L) / 4
+            val mobileToday = mobileMapToday[uid] ?: TrafficStats.getUidTxBytes(uid).coerceAtLeast(0L) / 4
+            UidUsage(
+                wifiBytesToday = wifiToday,
+                mobileBytesToday = mobileToday,
+                totalBytesMonth = totalMapMonth[uid] ?: (wifiToday + mobileToday)
             )
         }
+    }
 
-        resultList.sortedWith(
-            compareByDescending<AppUsageInfo> { it.rule.isPinned }
-                .thenByDescending { it.totalBytesToday }
-        )
+    suspend fun getAppUsageList(rulesMap: Map<String, AppRule>): List<AppUsageInfo> {
+        val apps = loadInstalledApps(includeIcons = false)
+        val usage = loadUsageByUid(apps.map { it.uid })
+        return buildAppUsageList(apps, usage, rulesMap)
     }
 
     private fun queryNetworkBucket(metered: Int, networkType: Int, startTime: Long, endTime: Long, outMap: MutableMap<Int, Long>) {
@@ -229,5 +281,9 @@ class DataUsageRepository(private val context: Context) {
             )
         }
         days
+    }
+
+    companion object {
+        private const val ICON_SIZE_PX = 96
     }
 }

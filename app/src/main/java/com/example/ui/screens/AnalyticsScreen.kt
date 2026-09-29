@@ -39,14 +39,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import com.example.data.model.AppUsageInfo
 import com.example.data.repository.DayUsageData
 import com.example.data.repository.SpeedMetrics
@@ -240,11 +238,8 @@ fun AnalyticsScreen(
                         Spacer(modifier = Modifier.width(10.dp))
 
                         if (app.icon != null) {
-                            val bitmap = remember(app.icon) {
-                                app.icon.toBitmap(width = 72, height = 72)
-                            }
                             Image(
-                                bitmap = bitmap.asImageBitmap(),
+                                bitmap = app.icon,
                                 contentDescription = app.appName,
                                 modifier = Modifier.size(36.dp).clip(CircleShape)
                             )

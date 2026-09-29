@@ -13,7 +13,10 @@ import com.example.data.preferences.AppPreferences
 import com.example.data.repository.DataUsageRepository
 import com.example.data.repository.DayUsageData
 import com.example.data.repository.FirewallRepository
+import com.example.data.repository.InstalledApp
 import com.example.data.repository.SpeedMetrics
+import com.example.data.repository.UidUsage
+import com.example.data.repository.buildAppUsageList
 import com.example.service.ScheduleWorker
 import com.example.vpn.BlockedAttemptEvent
 import com.example.vpn.FirewallVpnService
@@ -25,13 +28,46 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 enum class AppFilter {
     ALL, USER, SYSTEM, BLOCKED
+}
+
+/**
+ * A rule change shown in the UI before the database confirms it. Only the fields the user
+ * touched are overridden, so unrelated database updates still show through.
+ */
+private data class PendingEdit(
+    val wifiBlocked: Boolean? = null,
+    val mobileBlocked: Boolean? = null,
+    val pinned: Boolean? = null
+) {
+    fun applyTo(rule: AppRule): AppRule = rule.copy(
+        isWifiBlocked = wifiBlocked ?: rule.isWifiBlocked,
+        isMobileBlocked = mobileBlocked ?: rule.isMobileBlocked,
+        isPinned = pinned ?: rule.isPinned
+    )
+
+    /** Drops fields the database already agrees with; null when nothing is left pending. */
+    fun unconfirmedAgainst(rule: AppRule): PendingEdit? {
+        val remaining = PendingEdit(
+            wifiBlocked = wifiBlocked?.takeIf { it != rule.isWifiBlocked },
+            mobileBlocked = mobileBlocked?.takeIf { it != rule.isMobileBlocked },
+            pinned = pinned?.takeIf { it != rule.isPinned }
+        )
+        return if (remaining == PendingEdit()) null else remaining
+    }
+
+    fun merge(other: PendingEdit) = PendingEdit(
+        wifiBlocked = other.wifiBlocked ?: wifiBlocked,
+        mobileBlocked = other.mobileBlocked ?: mobileBlocked,
+        pinned = other.pinned ?: pinned
+    )
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -63,8 +99,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope, SharingStarted.WhileSubscribed(5000), 0
     )
 
-    private val _appUsages = MutableStateFlow<List<AppUsageInfo>>(emptyList())
-    val appUsages: StateFlow<List<AppUsageInfo>> = _appUsages.asStateFlow()
+    // The app list is joined from three sources that change at different rates, so a rule
+    // toggle only re-runs the cheap in-memory join instead of re-querying PackageManager.
+    private val _installedApps = MutableStateFlow<List<InstalledApp>>(emptyList())
+    private val _usageByUid = MutableStateFlow<Map<Int, UidUsage>>(emptyMap())
+    private val _dbRules = MutableStateFlow<Map<String, AppRule>>(emptyMap())
+    private val _pendingEdits = MutableStateFlow<Map<String, PendingEdit>>(emptyMap())
+
+    val appUsages: StateFlow<List<AppUsageInfo>> = combine(
+        _installedApps, _usageByUid, _dbRules, _pendingEdits
+    ) { apps, usage, rules, pending ->
+        val effectiveRules = if (pending.isEmpty()) rules else rules.mapValues { (pkg, rule) ->
+            pending[pkg]?.applyTo(rule) ?: rule
+        }
+        buildAppUsageList(apps, usage, effectiveRules)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -73,7 +122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedFilter: StateFlow<AppFilter> = _selectedFilter.asStateFlow()
 
     val filteredAppUsages: StateFlow<List<AppUsageInfo>> = combine(
-        _appUsages, _searchQuery, _selectedFilter
+        appUsages, _searchQuery, _selectedFilter
     ) { usages, query, filter ->
         usages.filter { item ->
             val matchesQuery = query.isBlank() ||
@@ -89,10 +138,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             matchesQuery && matchesFilter
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _speedMetrics = MutableStateFlow(SpeedMetrics())
-    val speedMetrics: StateFlow<SpeedMetrics> = _speedMetrics.asStateFlow()
+    // Sampled only while the Monitoring tab is collecting it
+    val speedMetrics: StateFlow<SpeedMetrics> = flow {
+        while (true) {
+            emit(dataUsageRepo.measureCurrentSpeed())
+            delay(1000)
+        }
+    }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SpeedMetrics())
 
     private val _weeklyHistory = MutableStateFlow<List<DayUsageData>>(emptyList())
     val weeklyHistory: StateFlow<List<DayUsageData>> = _weeklyHistory.asStateFlow()
@@ -113,21 +167,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Schedule periodic check
         ScheduleWorker.schedulePeriodicCheck(application)
 
-        // Observe rules from DB and update app list
+        // Load installed apps (labels, icons) and usage once up front
         viewModelScope.launch(Dispatchers.IO) {
             firewallRepo.syncInstalledApps()
-            firewallRepo.allRules.collect { rules ->
-                val rulesMap = rules.associateBy { it.packageName }
-                _appUsages.value = dataUsageRepo.getAppUsageList(rulesMap)
-            }
+            reloadInstalledApps()
         }
 
-        // Live speed and usage refresher
-        viewModelScope.launch(Dispatchers.IO) {
-            while (isActive) {
-                _speedMetrics.value = dataUsageRepo.measureCurrentSpeed()
-                _hasUsagePermission.value = dataUsageRepo.hasUsageStatsPermission()
-                delay(1000)
+        // Observe rules from DB; only installs/uninstalls (a changed package set) reload app metadata
+        viewModelScope.launch {
+            var knownPackages: Set<String>? = null
+            firewallRepo.allRules.collect { rules ->
+                val rulesMap = rules.associateBy { it.packageName }
+                _dbRules.value = rulesMap
+                _pendingEdits.update { pending ->
+                    pending.mapNotNull { (pkg, edit) ->
+                        val dbRule = rulesMap[pkg] ?: return@mapNotNull null
+                        edit.unconfirmedAgainst(dbRule)?.let { pkg to it }
+                    }.toMap()
+                }
+                val packages = rulesMap.keys
+                if (knownPackages != null && packages != knownPackages) {
+                    launch(Dispatchers.IO) { reloadInstalledApps() }
+                }
+                knownPackages = packages
             }
         }
 
@@ -156,21 +218,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _onDemandEvent.value = null
     }
 
-    fun toggleWifi(packageName: String, blocked: Boolean) {
-        viewModelScope.launch {
-            val app = _appUsages.value.find { it.packageName == packageName }
-            val mobileBlocked = app?.rule?.isMobileBlocked ?: false
-            firewallRepo.updateToggles(packageName, blockWifi = blocked, blockMobile = mobileBlocked)
-            FirewallVpnService.reload(getApplication())
+    private suspend fun reloadInstalledApps() {
+        val apps = dataUsageRepo.loadInstalledApps()
+        _installedApps.value = apps
+        _usageByUid.value = dataUsageRepo.loadUsageByUid(apps.map { it.uid })
+        _hasUsagePermission.value = dataUsageRepo.hasUsageStatsPermission()
+    }
+
+    private suspend fun refreshUsage() {
+        _usageByUid.value = dataUsageRepo.loadUsageByUid(_installedApps.value.map { it.uid })
+        _hasUsagePermission.value = dataUsageRepo.hasUsageStatsPermission()
+    }
+
+    /** Shows [edit] immediately and returns the resulting rule, or null if the app has no rule yet. */
+    private fun applyEditLocally(packageName: String, edit: PendingEdit): AppRule? {
+        val dbRule = _dbRules.value[packageName] ?: return null
+        var merged = edit
+        _pendingEdits.update { pending ->
+            merged = pending[packageName]?.merge(edit) ?: edit
+            pending + (packageName to merged)
         }
+        return merged.applyTo(dbRule)
+    }
+
+    private fun dropPendingEdit(packageName: String) {
+        _pendingEdits.update { it - packageName }
+    }
+
+    fun toggleWifi(packageName: String, blocked: Boolean) {
+        val rule = applyEditLocally(packageName, PendingEdit(wifiBlocked = blocked)) ?: return
+        saveToggles(packageName, rule.isWifiBlocked, rule.isMobileBlocked)
     }
 
     fun toggleMobile(packageName: String, blocked: Boolean) {
+        val rule = applyEditLocally(packageName, PendingEdit(mobileBlocked = blocked)) ?: return
+        saveToggles(packageName, rule.isWifiBlocked, rule.isMobileBlocked)
+    }
+
+    private fun saveToggles(packageName: String, blockWifi: Boolean, blockMobile: Boolean) {
         viewModelScope.launch {
-            val app = _appUsages.value.find { it.packageName == packageName }
-            val wifiBlocked = app?.rule?.isWifiBlocked ?: false
-            firewallRepo.updateToggles(packageName, blockWifi = wifiBlocked, blockMobile = blocked)
-            FirewallVpnService.reload(getApplication())
+            try {
+                firewallRepo.updateToggles(packageName, blockWifi = blockWifi, blockMobile = blockMobile)
+                FirewallVpnService.reload(getApplication())
+            } catch (e: Exception) {
+                dropPendingEdit(packageName)
+            }
         }
     }
 
@@ -198,6 +290,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetAppRule(packageName: String) {
+        applyEditLocally(packageName, PendingEdit(wifiBlocked = false, mobileBlocked = false))
         viewModelScope.launch {
             firewallRepo.updateToggles(packageName, blockWifi = false, blockMobile = false)
             firewallRepo.setTemporaryAccess(packageName, 0)
@@ -208,8 +301,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setPinned(packageName: String, isPinned: Boolean) {
+        applyEditLocally(packageName, PendingEdit(pinned = isPinned)) ?: return
         viewModelScope.launch {
-            firewallRepo.setPinned(packageName, isPinned)
+            try {
+                firewallRepo.setPinned(packageName, isPinned)
+            } catch (e: Exception) {
+                dropPendingEdit(packageName)
+            }
         }
     }
 
@@ -341,6 +439,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun syncDeltaInstalledApps() {
         viewModelScope.launch(Dispatchers.IO) {
             firewallRepo.syncInstalledApps(blockMobileForNewApps = true)
+            // Also picks up a usage-access grant made in system settings
+            refreshUsage()
         }
     }
 
@@ -354,11 +454,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isRefreshing.value = true
             try {
                 firewallRepo.syncInstalledApps(blockMobileForNewApps = true)
-                val allRules = firewallRepo.allRules.first()
-                val rulesMap = allRules.associateBy { it.packageName }
-                _appUsages.value = dataUsageRepo.getAppUsageList(rulesMap)
+                dataUsageRepo.clearIconCache()
+                reloadInstalledApps()
                 _weeklyHistory.value = dataUsageRepo.get7DayUsageHistory()
-                _hasUsagePermission.value = dataUsageRepo.hasUsageStatsPermission()
             } finally {
                 delay(400) // Smooth UX feedback for pull-to-refresh
                 _isRefreshing.value = false

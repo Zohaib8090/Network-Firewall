@@ -1,13 +1,15 @@
 package com.example.data.model
 
-import android.graphics.drawable.Drawable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.graphics.ImageBitmap
 
+@Immutable
 data class AppUsageInfo(
     val packageName: String,
     val appName: String,
     val uid: Int,
     val isSystemApp: Boolean,
-    val icon: Drawable? = null,
+    val icon: ImageBitmap? = null,
     val wifiBytesToday: Long = 0L,
     val mobileBytesToday: Long = 0L,
     val totalBytesToday: Long = 0L,

@@ -2,6 +2,9 @@ package com.example
 
 import com.example.data.model.AppRule
 import com.example.data.model.ScheduleRule
+import com.example.data.repository.InstalledApp
+import com.example.data.repository.UidUsage
+import com.example.data.repository.buildAppUsageList
 import com.example.vpn.FirewallTimers
 import com.example.vpn.PacketParser
 import org.junit.Assert.assertEquals
@@ -92,5 +95,26 @@ class FirewallLogicTest {
             daysOfWeek = "MON", targetPackageNames = "ALL", isEnabled = false
         )
         assertNull(FirewallTimers.nextChangeAt(now, now - 1, listOf(expired), listOf(disabled), utc))
+    }
+
+    @Test
+    fun `app list joins usage and rules, pinned first then by usage`() {
+        val apps = listOf(
+            InstalledApp("a", "A", uid = 1, isSystemApp = false, icon = null),
+            InstalledApp("b", "B", uid = 2, isSystemApp = false, icon = null),
+            InstalledApp("c", "C", uid = 3, isSystemApp = true, icon = null)
+        )
+        val usage = mapOf(1 to UidUsage(wifiBytesToday = 10), 2 to UidUsage(mobileBytesToday = 50))
+        val rules = mapOf(
+            "a" to AppRule(packageName = "a", appName = "A", isWifiBlocked = true, isPinned = true)
+        )
+
+        val list = buildAppUsageList(apps, usage, rules)
+
+        assertEquals(listOf("a", "b", "c"), list.map { it.packageName })
+        assertEquals(true, list[0].rule.isWifiBlocked)
+        assertEquals(50L, list[1].totalBytesToday)
+        assertEquals(0L, list[2].totalBytesToday) // no usage entry
+        assertEquals("c", list[2].rule.packageName) // default rule when none stored
     }
 }

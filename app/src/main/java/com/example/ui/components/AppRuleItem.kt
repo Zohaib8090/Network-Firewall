@@ -45,14 +45,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import com.example.data.model.AppUsageInfo
 import com.example.ui.theme.MobileOrange
 import com.example.ui.theme.StatusAllowed
@@ -113,11 +111,8 @@ fun AppRuleItem(
             ) {
                 // App Icon
                 if (appUsage.icon != null) {
-                    val bitmap = remember(appUsage.icon) {
-                        appUsage.icon.toBitmap(width = 96, height = 96)
-                    }
                     Image(
-                        bitmap = bitmap.asImageBitmap(),
+                        bitmap = appUsage.icon,
                         contentDescription = appUsage.appName,
                         modifier = Modifier
                             .size(44.dp)
