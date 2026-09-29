@@ -20,6 +20,7 @@ All code lives under `app/src/main/java/com/example/`.
   - Wi-Fi/mobile changes come from `registerDefaultNetworkCallback`, ignoring networks with `TRANSPORT_VPN`.
   - Time-based changes (pause end, temporary-allow expiry, schedule start and end) are handled by an `AlarmManager` alarm to `ScheduleAlarmReceiver`. The alarm is exact when `SCHEDULE_EXACT_ALARM` is granted and inexact otherwise. The wakeup time comes from `vpn/FirewallTimers.kt`.
   - The app that sent a dropped packet is worked out by `resolveOwnerPackage`: certain when only one app is blocked; otherwise it uses `ConnectivityManager.getConnectionOwnerUid` (Android 10+). Packets it can't attribute are not logged. Block logs are throttled per app, destination and port.
+  - The UI must never show the firewall as active when it isn't. Whenever the service stops itself (`onRevoke` because another VPN took over, `establish()` returning null, or an exception while building the tunnel) it goes through `stopWithReason(VpnStopReason)`: it clears `isVpnEnabled`, posts a "Firewall stopped" notification, and sets `FirewallVpnService.stopReason`, which `MainScreen` shows as a snackbar with a "Turn on" action. A tunnel is only built if at least one blocked app could be added, because a tunnel with no allowed apps captures every app.
   - `vpn/PacketParser.kt`: IPv4/IPv6 header parsing (pure, unit-tested).
 - `data/`: Room DB `smart_network_guard.db` (version 2, `fallbackToDestructiveMigration`; bumping the version **wipes user rules**). It has three entities: `AppRule` (keyed by package name), `ScheduleRule` (days as a CSV of `MON..SUN`, targets as a CSV or `"ALL"`, end minute inclusive), and `BlockLog`. `AppPreferences` wraps DataStore settings.
 - `data/repository/`: `FirewallRepository` (rule CRUD, profiles, install sync, JSON export/import) and `DataUsageRepository` (`NetworkStatsManager` usage, which needs the usage-access permission, plus live speed).
@@ -28,11 +29,13 @@ All code lives under `app/src/main/java/com/example/`.
 - `ui/`: a single `MainViewModel` with `MainScreen`, which has 4 tabs (Firewall, Monitoring, Schedules, Settings/Logs), plus dialogs in `ui/components/`.
   - The app list (`MainViewModel.appUsages`) is an in-memory join (`buildAppUsageList`) of three separately updated sources: installed apps with icons already converted to bitmaps in the background (reloaded only when the set of packages changes or on pull-to-refresh), per-UID usage (refreshed on resume and on refresh), and rules from Room. Don't go back to re-querying PackageManager on every rule change; that was the cause of UI lag.
   - Wi-Fi/mobile toggles, pin and reset show up at once through `PendingEdit` overrides, which are cleared field by field once Room confirms the change.
+  - On Android 13+ `MainScreen` asks for `POST_NOTIFICATIONS` when the user turns the firewall on (then continues to the VPN permission whatever the answer, since the firewall doesn't depend on it) and shows a one-time message with a link to notification settings if it was declined.
   - Live speed (`speedMetrics`) is only sampled while the Monitoring tab collects it. Don't collect it at the top of `MainScreen`.
 
 ## Conventions
 
 - After changing anything that affects blocking (rules, schedules, preferences), call `FirewallVpnService.reload(context)`.
+- Robolectric Compose tests hang ("Compose did not get idle") when a text field sits inside a dialog window, whatever the graphics mode or clock settings. Test dialogs through their parts instead (see `DialogPartsTest`: `limitsToSave`, `TimeField`, `TimePickerDialog`).
 - Keep pure logic (parsing, time calculations, rule evaluation) out of Android classes so it can be unit-tested, as `PacketParser` and `FirewallTimers` are; tests go in `app/src/test/java/com/example/`.
 - New apps default to **mobile data blocked** (`syncInstalledApps`/`onPackageAdded` with `blockMobile...ByDefault = true`). This is intentional in the current code; don't change it silently.
 - Several dependencies (Firebase AI/AppCheck, Retrofit, OkHttp, Moshi) come from the template and are unused. They add the INTERNET permission to the merged manifest despite the "zero internet" comment in `AndroidManifest.xml`.

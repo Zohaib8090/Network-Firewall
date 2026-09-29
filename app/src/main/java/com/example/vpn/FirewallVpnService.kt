@@ -14,6 +14,7 @@ import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
@@ -22,6 +23,7 @@ import com.example.data.model.BlockLog
 import com.example.data.preferences.AppPreferences
 import com.example.receiver.FirewallActionReceiver
 import com.example.receiver.ScheduleAlarmReceiver
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -84,6 +86,8 @@ class FirewallVpnService : VpnService() {
         val action = intent?.action
         when (action) {
             ACTION_START -> {
+                _stopReason.value = null
+                (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID_STOPPED)
                 startForeground(NOTIFICATION_ID_FOREGROUND, buildForegroundNotification("Smart Network Guard active", 0))
                 serviceScope.launch {
                     appPreferences.setVpnEnabled(true)
@@ -110,6 +114,19 @@ class FirewallVpnService : VpnService() {
             }
         }
         return START_STICKY
+    }
+
+    /** Called by the system when another VPN app takes over or the VPN permission is removed. */
+    override fun onRevoke() {
+        serviceScope.launch {
+            reconfigureMutex.withLock { stopWithReason(VpnStopReason.REVOKED) }
+        }
+    }
+
+    private suspend fun stopWithReason(reason: VpnStopReason) {
+        // Switch the preference off too, so the UI and the boot receiver don't treat it as running
+        appPreferences.setVpnEnabled(false)
+        stopVpn(reason)
     }
 
     private suspend fun reconfigureVpn(): Unit = reconfigureMutex.withLock {
@@ -231,26 +248,40 @@ class FirewallVpnService : VpnService() {
             builder.setConfigureIntent(pendingConfig)
 
             // Add blocked applications to be routed to our dummy local sink
+            var routedCount = 0
             for (pkg in blockedPackages) {
                 try {
                     builder.addAllowedApplication(pkg)
+                    routedCount++
                 } catch (e: PackageManager.NameNotFoundException) {
                     // Package may have been uninstalled
                 }
             }
-
-            vpnInterface = builder.establish()
-            if (vpnInterface != null) {
-                startPacketDropper(vpnInterface!!, blockedPackages)
-                val statusText = if (isGlobalLock) {
-                    "GLOBAL INTERNET LOCK: All apps isolated"
-                } else {
-                    "Protected: ${blockedPackages.size} apps blocked on ${if (isWifi) "Wi-Fi" else "Mobile"}"
-                }
-                updateForegroundNotification(statusText, blockedPackages.size)
+            if (routedCount == 0) {
+                // A tunnel with no allowed apps would capture every app, so don't build one
+                updateForegroundNotification("Firewall Active - All traffic permitted", 0)
+                return@withLock
             }
+
+            val tunnel = builder.establish()
+            if (tunnel == null) {
+                // The system refused: VPN permission was revoked or never granted
+                stopWithReason(VpnStopReason.NOT_PERMITTED)
+                return@withLock
+            }
+            vpnInterface = tunnel
+            startPacketDropper(tunnel, blockedPackages)
+            val statusText = if (isGlobalLock) {
+                "GLOBAL INTERNET LOCK: All apps isolated"
+            } else {
+                "Protected: $routedCount apps blocked on ${if (isWifi) "Wi-Fi" else "Mobile"}"
+            }
+            updateForegroundNotification(statusText, routedCount)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to establish firewall tunnel", e)
+            stopWithReason(VpnStopReason.FAILED)
         }
     }
 
@@ -452,12 +483,34 @@ class FirewallVpnService : VpnService() {
         vpnInterface = null
     }
 
-    private fun stopVpn() {
+    private fun stopVpn(reason: VpnStopReason? = null) {
         teardownTunnel()
         scheduleWakeup(null)
         _vpnState.value = VpnStatus.STOPPED
+        if (reason != null) {
+            showStoppedNotification(reason)
+            _stopReason.value = reason
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun showStoppedNotification(reason: VpnStopReason) {
+        val pendingOpen = PendingIntent.getActivity(
+            this, 102, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERTS)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Firewall stopped")
+            .setContentText(reason.message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(reason.message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingOpen)
+            .build()
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(NOTIFICATION_ID_STOPPED, notification)
     }
 
     override fun onDestroy() {
@@ -538,6 +591,8 @@ class FirewallVpnService : VpnService() {
         const val CHANNEL_ID_FOREGROUND = "smart_guard_vpn_status"
         const val CHANNEL_ID_ALERTS = "smart_guard_vpn_alerts"
         const val NOTIFICATION_ID_FOREGROUND = 1001
+        const val NOTIFICATION_ID_STOPPED = 1002
+        private const val TAG = "FirewallVpnService"
         private const val REQUEST_CODE_WAKEUP = 200
 
         private const val VPN_ADDRESS_V4 = "10.255.255.1"
@@ -552,6 +607,14 @@ class FirewallVpnService : VpnService() {
 
         private val _vpnState = MutableStateFlow(VpnStatus.STOPPED)
         val vpnState = _vpnState.asStateFlow()
+
+        private val _stopReason = MutableStateFlow<VpnStopReason?>(null)
+        /** Set when the firewall turned itself off; cleared when it is started again or dismissed in the UI. */
+        val stopReason = _stopReason.asStateFlow()
+
+        fun clearStopReason() {
+            _stopReason.value = null
+        }
 
         private val _blockedEventsFlow = MutableSharedFlow<BlockedAttemptEvent>(extraBufferCapacity = 64)
         val blockedEventsFlow = _blockedEventsFlow.asSharedFlow()

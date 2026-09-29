@@ -31,7 +31,7 @@ Because it uses the VPN slot, it can't run at the same time as another VPN app.
 - Permissions you grant when asked:
   - **VPN connection**: required for blocking.
   - **Usage access** (optional): needed for accurate per-app usage numbers.
-  - **Notifications**: for blocked-attempt and data-limit alerts.
+  - **Notifications**: for blocked-attempt and data-limit alerts (Android 13+ asks when you first turn the firewall on; the firewall works without it).
   - **Alarms & reminders** (optional, Android 12+): lets schedules and timers switch on the exact minute; without it they may run a few minutes late.
 
 ## Building
