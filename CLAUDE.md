@@ -11,6 +11,12 @@ Smart Network Guard: a no-root Android firewall (Kotlin, Jetpack Compose, Room, 
 - Launcher icon: vector adaptive icon (`drawable/ic_launcher_{background,foreground,monochrome}.xml`) plus WebP mipmaps for API 24–25; `docs/icon.png` is the 512px version used in the README.
 - Screenshot test (`GreetingScreenshotTest`) uses Roborazzi and writes to `app/src/test/screenshots/`.
 
+## Workflow
+
+- Commit and push straight to `main`; don't open pull requests unless asked. This is the owner's standing instruction.
+- Nothing checks a change before it lands on `main` (CI only runs after the push), so run what CI runs first: `gradle :app:testDebugUnitTest :app:assembleDebug` on JDK 21. If the `main` build turns red, fixing it comes before any other work.
+- Commits are authored as the owner (`zohaib.dev <zohaibbaig144@gmail.com>`, their GitHub profile identity) with Claude as `Co-Authored-By`. Never rewrite the history of `main`.
+
 ## Architecture
 
 All code lives under `app/src/main/java/com/example/`.
