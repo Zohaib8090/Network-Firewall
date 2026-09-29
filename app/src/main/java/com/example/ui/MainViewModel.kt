@@ -21,6 +21,7 @@ import com.example.service.ScheduleWorker
 import com.example.vpn.BlockedAttemptEvent
 import com.example.vpn.FirewallVpnService
 import com.example.vpn.VpnStatus
+import com.example.vpn.VpnStopReason
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -76,6 +77,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = AppPreferences(application)
 
     val vpnStatus: StateFlow<VpnStatus> = FirewallVpnService.vpnState
+    val stopReason: StateFlow<VpnStopReason?> = FirewallVpnService.stopReason
     val isGlobalInternetLock: StateFlow<Boolean> = prefs.isGlobalInternetLock.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), false
     )
@@ -212,6 +214,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSelectedFilter(filter: AppFilter) {
         _selectedFilter.value = filter
+    }
+
+    fun dismissStopReason() {
+        FirewallVpnService.clearStopReason()
     }
 
     fun dismissOnDemandDialog() {

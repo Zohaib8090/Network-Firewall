@@ -1,9 +1,13 @@
 package com.example.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
+import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -39,14 +43,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +67,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.OnDemandAccessBottomSheet
 import com.example.ui.screens.AnalyticsScreen
@@ -66,6 +79,7 @@ import com.example.ui.theme.StatusBlocked
 import com.example.ui.theme.StatusPaused
 import com.example.vpn.FirewallVpnService
 import com.example.vpn.VpnStatus
+import kotlinx.coroutines.launch
 
 enum class ScreenTab(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     FIREWALL("Firewall", Icons.Default.Shield),
@@ -103,6 +117,11 @@ fun MainScreen(
     val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
     val onDemandEvent by viewModel.onDemandEvent.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val stopReason by viewModel.stopReason.collectAsStateWithLifecycle()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var notificationHintShown by rememberSaveable { mutableStateOf(false) }
 
     // VPN Permission Launcher
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
@@ -113,7 +132,7 @@ fun MainScreen(
         }
     }
 
-    val startVpnAction = {
+    val startVpnFlow: () -> Unit = {
         val vpnIntent = VpnService.prepare(context)
         if (vpnIntent != null) {
             vpnPermissionLauncher.launch(vpnIntent)
@@ -122,8 +141,57 @@ fun MainScreen(
         }
     }
 
+    // Android 13+ needs a runtime grant before blocked-app alerts and the "Allow 10 min" action can
+    // show. The firewall itself doesn't depend on it, so it starts whatever the answer is.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted && !notificationHintShown) {
+            notificationHintShown = true
+            scope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = "Notifications are off, so you won't see blocked-app alerts.",
+                    actionLabel = "Settings",
+                    duration = SnackbarDuration.Long
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    context.startActivity(
+                        Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName)
+                    )
+                }
+            }
+        }
+        startVpnFlow()
+    }
+
+    val startVpnAction: () -> Unit = {
+        val needsNotificationPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        if (needsNotificationPermission) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            startVpnFlow()
+        }
+    }
+
+    // The firewall turned itself off (another VPN took over, permission lost, or setup failed)
+    LaunchedEffect(stopReason) {
+        val reason = stopReason ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = reason.message,
+            actionLabel = "Turn on",
+            withDismissAction = true,
+            duration = SnackbarDuration.Indefinite
+        )
+        if (result == SnackbarResult.ActionPerformed) startVpnAction()
+        viewModel.dismissStopReason()
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
