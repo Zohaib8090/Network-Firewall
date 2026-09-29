@@ -4,10 +4,11 @@ Smart Network Guard: a no-root Android firewall (Kotlin, Jetpack Compose, Room, 
 
 ## Build and test
 
-- No Gradle wrapper is committed. CI (`.github/workflows/build_apk.yml`) runs `gradle wrapper` and then `./gradlew assembleDebug`. Locally, use Gradle 9.3.1 (see `gradle/wrapper/gradle-wrapper.properties`) and an SDK containing `platforms;android-36.1`, with `sdk.dir` set in `local.properties`.
+- No Gradle wrapper is committed. CI (`.github/workflows/build_apk.yml`) pins Gradle 9.3.1 with `gradle/actions/setup-gradle`, then runs `gradle :app:testDebugUnitTest` and `gradle :app:assembleDebug`. Locally, use Gradle 9.3.1 and an SDK containing `platforms;android-36.1`, with `sdk.dir` set in `local.properties`.
 - Unit tests (JVM and Robolectric): `gradle :app:testDebugUnitTest`. Compile only: `gradle :app:compileDebugKotlin`.
-- Debug signing expects `debug.keystore` at the repo root. It is gitignored, so packaging tasks fail without it, but compiling and unit tests work.
-- Known failing test: `ExampleRobolectricTest."read string from context"` expects `app_name` "Smart Network Guard", but `strings.xml` has "Network-Firewall".
+- Signing configs are only created when their keystore exists (`debug.keystore` at the repo root, gitignored; release upload key via `KEYSTORE_PATH`). Otherwise debug builds use AGP's auto-generated debug key and release APKs are unsigned. Don't make a missing keystore fail the build again: that is what broke every CI run before.
+- The user-visible app name (`app_name`) is "Network-Firewall"; tests assert it.
+- Launcher icon: vector adaptive icon (`drawable/ic_launcher_{background,foreground,monochrome}.xml`) plus WebP mipmaps for API 24–25; `docs/icon.png` is the 512px version used in the README.
 - Screenshot test (`GreetingScreenshotTest`) uses Roborazzi and writes to `app/src/test/screenshots/`.
 
 ## Architecture
@@ -25,6 +26,9 @@ All code lives under `app/src/main/java/com/example/`.
 - `receiver/`: boot auto-start, notification actions (allow 10 min and so on), package install/remove/replace sync, and the alarm receiver.
 - `service/ScheduleWorker.kt`: 15-minute periodic job that reloads the firewall and sends data-limit notifications.
 - `ui/`: a single `MainViewModel` with `MainScreen`, which has 4 tabs (Firewall, Monitoring, Schedules, Settings/Logs), plus dialogs in `ui/components/`.
+  - The app list (`MainViewModel.appUsages`) is an in-memory join (`buildAppUsageList`) of three separately updated sources: installed apps with icons already converted to bitmaps in the background (reloaded only when the set of packages changes or on pull-to-refresh), per-UID usage (refreshed on resume and on refresh), and rules from Room. Don't go back to re-querying PackageManager on every rule change; that was the cause of UI lag.
+  - Wi-Fi/mobile toggles, pin and reset show up at once through `PendingEdit` overrides, which are cleared field by field once Room confirms the change.
+  - Live speed (`speedMetrics`) is only sampled while the Monitoring tab collects it. Don't collect it at the top of `MainScreen`.
 
 ## Conventions
 

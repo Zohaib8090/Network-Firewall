@@ -93,7 +93,6 @@ fun MainScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
 
-    val speedMetrics by viewModel.speedMetrics.collectAsStateWithLifecycle()
     val weeklyHistory by viewModel.weeklyHistory.collectAsStateWithLifecycle()
     val allAppUsages by viewModel.appUsages.collectAsStateWithLifecycle()
     val hasUsagePermission by viewModel.hasUsagePermission.collectAsStateWithLifecycle()
@@ -245,12 +244,16 @@ fun MainScreen(
                     isRefreshing = isRefreshing,
                     onRefresh = { viewModel.triggerManualRefresh() }
                 )
-                1 -> AnalyticsScreen(
-                    speedMetrics = speedMetrics,
-                    weeklyHistory = weeklyHistory,
-                    appUsages = allAppUsages,
-                    hasUsagePermission = hasUsagePermission
-                )
+                1 -> {
+                    // Collected here, not at the top, so the per-second updates only recompose this tab
+                    val speedMetrics by viewModel.speedMetrics.collectAsStateWithLifecycle()
+                    AnalyticsScreen(
+                        speedMetrics = speedMetrics,
+                        weeklyHistory = weeklyHistory,
+                        appUsages = allAppUsages,
+                        hasUsagePermission = hasUsagePermission
+                    )
+                }
                 2 -> SchedulesScreen(
                     isGlobalLock = isGlobalLock,
                     activeProfile = activeProfile,

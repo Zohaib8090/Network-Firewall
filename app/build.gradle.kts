@@ -23,19 +23,27 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
+  // Keystores are gitignored, so only use them when present. Without debug.keystore, debug builds
+  // (e.g. on CI) use AGP's auto-generated debug key; without the upload key, release APKs are unsigned.
+  val releaseKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
+  val debugKeystore = file("${rootDir}/debug.keystore")
+
   signingConfigs {
-    create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+    if (releaseKeystore.exists()) {
+      create("release") {
+        storeFile = releaseKeystore
+        storePassword = System.getenv("STORE_PASSWORD")
+        keyAlias = "upload"
+        keyPassword = System.getenv("KEY_PASSWORD")
+      }
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
+    if (debugKeystore.exists()) {
+      create("debugConfig") {
+        storeFile = debugKeystore
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      }
     }
   }
 
@@ -44,9 +52,9 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      signingConfigs.findByName("release")?.let { signingConfig = it }
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug { signingConfigs.findByName("debugConfig")?.let { signingConfig = it } }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
