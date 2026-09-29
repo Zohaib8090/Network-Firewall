@@ -86,4 +86,4 @@ Questions, bug reports or security reports: [zohaibbaig144@gmail.com](mailto:zoh
 
 ## License
 
-[MIT](LICENSE) © 2026 Zohaib8090
+[MIT](LICENSE) © 2026 zohaib.dev
