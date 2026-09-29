@@ -10,7 +10,12 @@ Only the latest release (currently 1.0) and the `main` branch receive fixes.
 
 **Please don't open a public issue for security problems.**
 
-Report it privately through GitHub: open the repository's **Security** tab and choose **Report a vulnerability**. Include:
+Report it privately in either of these ways:
+
+- **Email:** [zohaibbaig144@gmail.com](mailto:zohaibbaig144@gmail.com) with "Security" in the subject line
+- **GitHub:** open the repository's **Security** tab and choose **Report a vulnerability**
+
+Include:
 
 - what the problem is and what an attacker could do with it
 - steps to reproduce, and your Android version and device

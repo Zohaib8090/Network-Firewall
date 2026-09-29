@@ -13,7 +13,11 @@ All notable changes to this project are documented here. The format follows [Kee
 - Toggling Wi-Fi or mobile access, pinning or resetting an app now updates the screen immediately, instead of after the whole app list reloads.
 - Reduced stutter when scrolling the app list; app icons are now prepared in the background.
 
+- The GitHub Actions build, which had failed on every run because the gitignored `debug.keystore` was missing. Builds now fall back to the standard debug key, use a fixed Gradle version (9.3.1), and run the unit tests.
+- A unit test that still expected the app's old name.
+
 ### Changed
+- New app icon: a shield with Wi-Fi waves on the app's emerald green, including a monochrome version for Android 13+ themed icons.
 - Live network speed is only measured while the Monitoring tab is open.
 
 ### Added

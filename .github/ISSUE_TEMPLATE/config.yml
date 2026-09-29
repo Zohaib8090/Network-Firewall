@@ -2,4 +2,4 @@ blank_issues_enabled: true
 contact_links:
   - name: Report a security vulnerability
     url: https://github.com/Zohaib8090/Network-Firewall/security/advisories/new
-    about: Please report security problems privately, not as a public issue.
+    about: Please report security problems privately (or email zohaibbaig144@gmail.com), not as a public issue.

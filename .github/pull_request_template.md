@@ -13,7 +13,7 @@
 ## Testing
 
 - [ ] `gradle :app:compileDebugKotlin` passes
-- [ ] `gradle :app:testDebugUnitTest` passes (apart from the known failing test)
+- [ ] `gradle :app:testDebugUnitTest` passes
 - [ ] Tested on a device or emulator: Android version ___
 
 ## Screenshots

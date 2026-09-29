@@ -4,10 +4,11 @@ Smart Network Guard: a no-root Android firewall (Kotlin, Jetpack Compose, Room, 
 
 ## Build and test
 
-- No Gradle wrapper is committed. CI (`.github/workflows/build_apk.yml`) runs `gradle wrapper` and then `./gradlew assembleDebug`. Locally, use Gradle 9.3.1 (see `gradle/wrapper/gradle-wrapper.properties`) and an SDK containing `platforms;android-36.1`, with `sdk.dir` set in `local.properties`.
+- No Gradle wrapper is committed. CI (`.github/workflows/build_apk.yml`) pins Gradle 9.3.1 with `gradle/actions/setup-gradle`, then runs `gradle :app:testDebugUnitTest` and `gradle :app:assembleDebug`. Locally, use Gradle 9.3.1 and an SDK containing `platforms;android-36.1`, with `sdk.dir` set in `local.properties`.
 - Unit tests (JVM and Robolectric): `gradle :app:testDebugUnitTest`. Compile only: `gradle :app:compileDebugKotlin`.
-- Debug signing expects `debug.keystore` at the repo root. It is gitignored, so packaging tasks fail without it, but compiling and unit tests work.
-- Known failing test: `ExampleRobolectricTest."read string from context"` expects `app_name` "Smart Network Guard", but `strings.xml` has "Network-Firewall".
+- Signing configs are only created when their keystore exists (`debug.keystore` at the repo root, gitignored; release upload key via `KEYSTORE_PATH`). Otherwise debug builds use AGP's auto-generated debug key and release APKs are unsigned. Don't make a missing keystore fail the build again: that is what broke every CI run before.
+- The user-visible app name (`app_name`) is "Network-Firewall"; tests assert it.
+- Launcher icon: vector adaptive icon (`drawable/ic_launcher_{background,foreground,monochrome}.xml`) plus WebP mipmaps for API 24–25; `docs/icon.png` is the 512px version used in the README.
 - Screenshot test (`GreetingScreenshotTest`) uses Roborazzi and writes to `app/src/test/screenshots/`.
 
 ## Architecture

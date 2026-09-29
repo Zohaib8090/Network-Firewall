@@ -11,8 +11,6 @@ gradle :app:compileDebugKotlin
 gradle :app:testDebugUnitTest
 ```
 
-One test, `ExampleRobolectricTest."read string from context"`, currently fails for a known reason (the app name in `strings.xml` doesn't match the test). Please don't count it as a failure caused by your change.
-
 ## Guidelines
 
 - **Keep pull requests focused**: one fix or feature per pull request.
@@ -30,3 +28,5 @@ Use a short prefix describing the type of change, as in the existing history: `f
 ## Reporting bugs and ideas
 
 Open an issue using the bug report or feature request template. For bugs, include your Android version, device, and steps to reproduce.
+
+For anything else, email [zohaibbaig144@gmail.com](mailto:zohaibbaig144@gmail.com).

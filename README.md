@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" alt="Smart Network Guard icon" width="128"></p>
+
 # Smart Network Guard
 
 A privacy-focused firewall for Android that controls internet access **per app**, separately for **Wi-Fi** and **mobile data**. It doesn't need root: it uses Android's built-in `VpnService` locally on the device, and no traffic is sent to any server.
@@ -38,7 +40,7 @@ The repository doesn't include the Gradle wrapper script, so use a local Gradle 
 
 1. Install **JDK 17** or newer, **Gradle 9.3.1**, and the Android SDK with **platform `android-36.1`**.
 2. Create `local.properties` in the repo root containing `sdk.dir=/path/to/Android/sdk`.
-3. Debug builds are signed with `debug.keystore` in the repo root (gitignored). Create one if you don't have it:
+3. Optional: debug builds use `debug.keystore` from the repo root if it exists (it's gitignored); otherwise Android's standard auto-generated debug key is used. To make your own:
    ```sh
    keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey \
      -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
@@ -50,7 +52,7 @@ The repository doesn't include the Gradle wrapper script, so use a local Gradle 
    gradle :app:testDebugUnitTest
    ```
 
-GitHub Actions builds a debug APK on every push and pull request to `main` (see `.github/workflows/build_apk.yml`). For judging performance, use a release build: debug builds of Jetpack Compose apps are noticeably slower.
+GitHub Actions runs the unit tests and builds a debug APK on every push and pull request to `main` (see `.github/workflows/build_apk.yml`); the APK is attached to each run as the `app-debug` artifact. For judging performance, use a release build: debug builds of Jetpack Compose apps are noticeably slower.
 
 ## Project structure
 
@@ -77,6 +79,10 @@ See [CHANGELOG.md](CHANGELOG.md) for recent changes.
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). To report a security problem, see [SECURITY.md](SECURITY.md).
+
+## Contact
+
+Questions, bug reports or security reports: [zohaibbaig144@gmail.com](mailto:zohaibbaig144@gmail.com)
 
 ## License
 
