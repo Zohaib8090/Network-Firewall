@@ -38,7 +38,7 @@ Because it uses the VPN slot, it can't run at the same time as another VPN app.
 
 The repository doesn't include the Gradle wrapper script, so use a local Gradle install:
 
-1. Install **JDK 17** or newer, **Gradle 9.3.1**, and the Android SDK with **platform `android-36.1`**.
+1. Install **JDK 21** or newer (the Robolectric unit tests need it for Android SDK 36), **Gradle 9.3.1**, and the Android SDK with **platform `android-36.1`**.
 2. Create `local.properties` in the repo root containing `sdk.dir=/path/to/Android/sdk`.
 3. Optional: debug builds use `debug.keystore` from the repo root if it exists (it's gitignored); otherwise Android's standard auto-generated debug key is used. To make your own:
    ```sh
