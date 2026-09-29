@@ -1,5 +1,6 @@
 package com.example.vpn
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,7 +11,6 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -21,6 +21,7 @@ import com.example.data.db.AppDatabase
 import com.example.data.model.BlockLog
 import com.example.data.preferences.AppPreferences
 import com.example.receiver.FirewallActionReceiver
+import com.example.receiver.ScheduleAlarmReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,10 +34,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.FileInputStream
-import java.net.InetAddress
-import java.nio.ByteBuffer
+import java.net.InetSocketAddress
 import java.util.Calendar
+import java.util.concurrent.ConcurrentHashMap
 
 class FirewallVpnService : VpnService() {
 
@@ -44,15 +47,21 @@ class FirewallVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var packetDropperJob: Job? = null
     private var connectivityManager: ConnectivityManager? = null
-    private var isCurrentWifi = false
+    @Volatile private var isCurrentWifi = false
+    private val reconfigureMutex = Mutex()
 
     private val database by lazy { AppDatabase.getInstance(this) }
     private val appPreferences by lazy { AppPreferences(this) }
 
-    private val recentBlockedAlertTimestamps = mutableMapOf<String, Long>()
+    private val recentBlockedAlertTimestamps = ConcurrentHashMap<String, Long>()
+    private val recentBlockLogTimestamps = ConcurrentHashMap<String, Long>()
 
+    // Tracks the default network, which for this app is always the underlying one because
+    // the app itself is never routed into its own tunnel. VPN networks are ignored so that
+    // establishing the tunnel cannot look like a Wi-Fi/mobile switch.
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
             val isWifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
             if (isWifi != isCurrentWifi) {
                 isCurrentWifi = isWifi
@@ -66,11 +75,9 @@ class FirewallVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        isRunning = true
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        connectivityManager?.registerNetworkCallback(request, networkCallback)
+        connectivityManager?.registerDefaultNetworkCallback(networkCallback)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,7 +98,7 @@ class FirewallVpnService : VpnService() {
             ACTION_STOP -> {
                 serviceScope.launch {
                     appPreferences.setVpnEnabled(false)
-                    stopVpn()
+                    reconfigureMutex.withLock { stopVpn() }
                 }
             }
             ACTION_PAUSE_15M -> {
@@ -105,18 +112,34 @@ class FirewallVpnService : VpnService() {
         return START_STICKY
     }
 
-    private suspend fun reconfigureVpn() {
+    private suspend fun reconfigureVpn(): Unit = reconfigureMutex.withLock {
+        // Rule changes call reload() even while the user has the firewall switched off;
+        // never build a tunnel in that state.
+        if (!appPreferences.isVpnEnabled.first()) {
+            teardownTunnel()
+            scheduleWakeup(null)
+            _vpnState.value = VpnStatus.STOPPED
+            return@withLock
+        }
+
         val isPausedUntil = appPreferences.pausedUntil.first()
         val now = System.currentTimeMillis()
         val isPaused = isPausedUntil > now
 
         val isGlobalLock = appPreferences.isGlobalInternetLock.first()
 
+        // Fetch rules
+        val allRules = database.appRuleDao().getAllRules().first()
+        val activeSchedules = database.scheduleRuleDao().getActiveSchedules()
+
+        // Re-run at the next pause end, temporary-allow expiry or schedule boundary
+        scheduleWakeup(FirewallTimers.nextChangeAt(now, isPausedUntil, allRules, activeSchedules))
+
         if (isPaused) {
             _vpnState.value = VpnStatus.PAUSED
             teardownTunnel()
             updateForegroundNotification("Firewall paused for temporary access", 0)
-            return
+            return@withLock
         }
 
         if (isGlobalLock) {
@@ -130,10 +153,6 @@ class FirewallVpnService : VpnService() {
         val caps = connectivityManager?.getNetworkCapabilities(activeNetwork)
         val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ?: true
         isCurrentWifi = isWifi
-
-        // Fetch rules
-        val allRules = database.appRuleDao().getAllRules().first()
-        val activeSchedules = database.scheduleRuleDao().getActiveSchedules()
 
         val cal = Calendar.getInstance()
         val hour = cal.get(Calendar.HOUR_OF_DAY)
@@ -191,15 +210,18 @@ class FirewallVpnService : VpnService() {
 
         if (blockedPackages.isEmpty()) {
             updateForegroundNotification("Firewall Active - All traffic permitted", 0)
-            return
+            return@withLock
         }
 
         try {
             val builder = Builder()
             builder.setSession("Smart Network Guard")
             builder.setMtu(1500)
-            builder.addAddress("10.255.255.1", 30)
+            builder.addAddress(VPN_ADDRESS_V4, 30)
             builder.addRoute("0.0.0.0", 0)
+            // Without an IPv6 route, blocked apps could still reach IPv6 destinations
+            builder.addAddress(VPN_ADDRESS_V6, 128)
+            builder.addRoute("::", 0)
 
             val configureIntent = Intent(this, MainActivity::class.java)
             val pendingConfig = PendingIntent.getActivity(
@@ -236,34 +258,18 @@ class FirewallVpnService : VpnService() {
         packetDropperJob?.cancel()
         packetDropperJob = serviceScope.launch(Dispatchers.IO) {
             val inputStream = FileInputStream(pfd.fileDescriptor)
-            val buffer = ByteBuffer.allocate(32768)
+            val packet = ByteArray(32768)
+            val ownerCache = HashMap<String, CachedOwner>()
 
             try {
                 while (isActive) {
-                    buffer.clear()
-                    val length = inputStream.read(buffer.array())
+                    val length = inputStream.read(packet)
                     if (length <= 0) continue
 
-                    // Parse IP Header for diagnostics & blocked attempt notification
-                    val version = (buffer.get(0).toInt() shr 4) and 0x0F
-                    if (version == 4 && length >= 20) {
-                        val protocol = buffer.get(9).toInt() and 0xFF
-                        val destIpBytes = ByteArray(4)
-                        buffer.position(16)
-                        buffer.get(destIpBytes)
-                        val destIp = InetAddress.getByAddress(destIpBytes).hostAddress ?: ""
-
-                        var destPort = 0
-                        if ((protocol == 6 || protocol == 17) && length >= 24) { // TCP or UDP
-                            buffer.position(22)
-                            destPort = buffer.short.toInt() and 0xFFFF
-                        }
-
-                        // Inspect blocked attempt
-                        val firstBlocked = blockedPackages.firstOrNull() ?: "unknown"
-                        handleBlockedAttempt(firstBlocked, destIp, destPort)
-                    }
                     // Packet is consumed and not forwarded: completely dropped locally!
+                    val info = PacketParser.parse(packet, length) ?: continue
+                    val owner = resolveOwnerPackage(info, blockedPackages, ownerCache) ?: continue
+                    handleBlockedAttempt(owner, info.destIp.hostAddress ?: "", info.destPort)
                 }
             } catch (e: Exception) {
                 // Stream closed or service stopping
@@ -271,8 +277,64 @@ class FirewallVpnService : VpnService() {
         }
     }
 
+    private data class CachedOwner(val uid: Int, val cachedAt: Long)
+
+    /**
+     * Finds which blocked app sent a packet. When only one app is routed into the tunnel the
+     * answer is certain; otherwise the kernel is asked for the socket owner (Android 10+).
+     * Returns null when the owner cannot be determined, so the attempt is not misattributed.
+     */
+    private fun resolveOwnerPackage(
+        info: PacketInfo,
+        blockedPackages: Set<String>,
+        ownerCache: MutableMap<String, CachedOwner>
+    ): String? {
+        if (blockedPackages.size == 1) return blockedPackages.first()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        if (info.protocol != PacketParser.PROTOCOL_TCP && info.protocol != PacketParser.PROTOCOL_UDP) return null
+        val cm = connectivityManager ?: return null
+
+        val now = System.currentTimeMillis()
+        val key = "${info.protocol}|${info.srcIp.hostAddress}|${info.srcPort}|${info.destIp.hostAddress}|${info.destPort}"
+        val cached = ownerCache[key]
+        val uid = if (cached != null && now - cached.cachedAt < OWNER_CACHE_TTL_MS) {
+            cached.uid
+        } else {
+            val resolved = try {
+                cm.getConnectionOwnerUid(
+                    info.protocol,
+                    InetSocketAddress(info.srcIp, info.srcPort),
+                    InetSocketAddress(info.destIp, info.destPort)
+                )
+            } catch (e: Exception) {
+                android.os.Process.INVALID_UID
+            }
+            if (ownerCache.size >= OWNER_CACHE_MAX_ENTRIES) {
+                ownerCache.entries.removeAll { now - it.value.cachedAt >= OWNER_CACHE_TTL_MS }
+                if (ownerCache.size >= OWNER_CACHE_MAX_ENTRIES) ownerCache.clear()
+            }
+            ownerCache[key] = CachedOwner(resolved, now)
+            resolved
+        }
+        if (uid == android.os.Process.INVALID_UID) return null
+
+        // Apps sharing a UID all enter the tunnel together; prefer the one the user blocked
+        val packages = packageManager.getPackagesForUid(uid) ?: return null
+        return packages.firstOrNull { it in blockedPackages } ?: packages.firstOrNull()
+    }
+
     private suspend fun handleBlockedAttempt(packageName: String, destIp: String, destPort: Int) {
         val now = System.currentTimeMillis()
+
+        // Apps retry constantly while blocked; record each destination at most once per window
+        val logKey = "$packageName|$destIp|$destPort"
+        val lastLogged = recentBlockLogTimestamps[logKey] ?: 0L
+        if (now - lastLogged < BLOCK_LOG_THROTTLE_MS) return
+        recentBlockLogTimestamps[logKey] = now
+        if (recentBlockLogTimestamps.size > 1000) {
+            recentBlockLogTimestamps.entries.removeAll { now - it.value >= BLOCK_LOG_THROTTLE_MS }
+        }
+
         val lastAlert = recentBlockedAlertTimestamps[packageName] ?: 0L
         val pm = packageManager
         val appName = try {
@@ -315,6 +377,24 @@ class FirewallVpnService : VpnService() {
             if (notifyAllowed) {
                 showBlockedAttemptNotification(packageName, appName, netType)
             }
+        }
+    }
+
+    private fun scheduleWakeup(atMillis: Long?) {
+        val alarmManager = getSystemService(AlarmManager::class.java) ?: return
+        val pendingIntent = PendingIntent.getBroadcast(
+            this, REQUEST_CODE_WAKEUP, Intent(this, ScheduleAlarmReceiver::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (atMillis == null) {
+            alarmManager.cancel(pendingIntent)
+            return
+        }
+        val canUseExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+        if (canUseExact) {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pendingIntent)
+        } else {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pendingIntent)
         }
     }
 
@@ -374,6 +454,7 @@ class FirewallVpnService : VpnService() {
 
     private fun stopVpn() {
         teardownTunnel()
+        scheduleWakeup(null)
         _vpnState.value = VpnStatus.STOPPED
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -381,6 +462,7 @@ class FirewallVpnService : VpnService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isRunning = false
         try {
             connectivityManager?.unregisterNetworkCallback(networkCallback)
         } catch (e: Exception) {}
@@ -456,6 +538,17 @@ class FirewallVpnService : VpnService() {
         const val CHANNEL_ID_FOREGROUND = "smart_guard_vpn_status"
         const val CHANNEL_ID_ALERTS = "smart_guard_vpn_alerts"
         const val NOTIFICATION_ID_FOREGROUND = 1001
+        private const val REQUEST_CODE_WAKEUP = 200
+
+        private const val VPN_ADDRESS_V4 = "10.255.255.1"
+        private const val VPN_ADDRESS_V6 = "fd00:ff:ff::1"
+
+        private const val BLOCK_LOG_THROTTLE_MS = 10_000L
+        private const val OWNER_CACHE_TTL_MS = 30_000L
+        private const val OWNER_CACHE_MAX_ENTRIES = 512
+
+        @Volatile
+        private var isRunning = false
 
         private val _vpnState = MutableStateFlow(VpnStatus.STOPPED)
         val vpnState = _vpnState.asStateFlow()
@@ -474,7 +567,9 @@ class FirewallVpnService : VpnService() {
             }
         }
 
+        /** Re-applies rules if the firewall is running; does nothing (and never starts it) otherwise. */
         fun reload(context: Context) {
+            if (!isRunning) return
             val intent = Intent(context, FirewallVpnService::class.java).apply {
                 action = ACTION_RELOAD
             }
