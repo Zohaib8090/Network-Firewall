@@ -28,6 +28,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AppRule
 
+/** Converts the MB the user typed into (daily, weekly, monthly) bytes; blank or invalid text means no limit. */
+internal fun limitsToSave(rule: AppRule, dailyMbText: String, monthlyMbText: String): Triple<Long, Long, Long> {
+    val dailyBytes = (dailyMbText.toLongOrNull() ?: 0L) * 1024L * 1024L
+    val monthlyBytes = (monthlyMbText.toLongOrNull() ?: 0L) * 1024L * 1024L
+    // The dialog has no weekly field, so keep the stored weekly limit instead of wiping it
+    return Triple(dailyBytes, rule.weeklyLimitBytes, monthlyBytes)
+}
+
 @Composable
 fun DataLimitDialog(
     rule: AppRule,
@@ -55,7 +63,8 @@ fun DataLimitDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "Alerts are sent at 80%, 90%, and 100% consumption. When reaching 100%, network traffic can be automatically stopped.",
+                    text = "You'll get a notification when this app reaches 80%, 90% and 100% of its daily limit. " +
+                        "Apps are not blocked automatically, and alerts need Usage access to be turned on.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -75,6 +84,7 @@ fun DataLimitDialog(
                     onValueChange = { monthlyMbText = it },
                     label = { Text("Monthly Limit (MB)") },
                     placeholder = { Text("e.g. 5000") },
+                    supportingText = { Text("Saved, but monthly alerts aren't active yet.") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("input_monthly_limit")
@@ -115,9 +125,8 @@ fun DataLimitDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val dailyBytes = (dailyMbText.toLongOrNull() ?: 0L) * 1024L * 1024L
-                    val monthlyBytes = (monthlyMbText.toLongOrNull() ?: 0L) * 1024L * 1024L
-                    onSaveLimits(dailyBytes, 0L, monthlyBytes)
+                    val (daily, weekly, monthly) = limitsToSave(rule, dailyMbText, monthlyMbText)
+                    onSaveLimits(daily, weekly, monthly)
                 },
                 modifier = Modifier.testTag("btn_save_limits")
             ) {

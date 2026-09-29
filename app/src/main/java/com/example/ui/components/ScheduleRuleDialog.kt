@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,11 +18,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -31,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +61,7 @@ fun ScheduleRuleDialog(
     var blockWifi by remember { mutableStateOf(initialRule?.blockWifi ?: true) }
     var blockMobile by remember { mutableStateOf(initialRule?.blockMobile ?: true) }
     var targetPackages by remember { mutableStateOf(initialRule?.targetPackageNames ?: "ALL") }
+    var pickingStart by remember { mutableStateOf<Boolean?>(null) } // null = closed, true = start, false = end
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -88,34 +94,22 @@ fun ScheduleRuleDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = String.format("%02d:%02d", startHour, startMinute),
-                        onValueChange = {
-                            val parts = it.split(":")
-                            if (parts.size == 2) {
-                                startHour = (parts[0].toIntOrNull() ?: startHour).coerceIn(0, 23)
-                                startMinute = (parts[1].toIntOrNull() ?: startMinute).coerceIn(0, 59)
-                            }
-                        },
-                        label = { Text("From") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
+                    TimeField(
+                        label = "From",
+                        hour = startHour,
+                        minute = startMinute,
+                        onClick = { pickingStart = true },
+                        modifier = Modifier.weight(1f).testTag("input_schedule_start")
                     )
 
                     Text("to", fontWeight = FontWeight.Bold)
 
-                    OutlinedTextField(
-                        value = String.format("%02d:%02d", endHour, endMinute),
-                        onValueChange = {
-                            val parts = it.split(":")
-                            if (parts.size == 2) {
-                                endHour = (parts[0].toIntOrNull() ?: endHour).coerceIn(0, 23)
-                                endMinute = (parts[1].toIntOrNull() ?: endMinute).coerceIn(0, 59)
-                            }
-                        },
-                        label = { Text("Until") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
+                    TimeField(
+                        label = "Until",
+                        hour = endHour,
+                        minute = endMinute,
+                        onClick = { pickingStart = false },
+                        modifier = Modifier.weight(1f).testTag("input_schedule_end")
                     )
                 }
 
@@ -196,6 +190,87 @@ fun ScheduleRuleDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
+        },
+        shape = RoundedCornerShape(24.dp)
+    )
+
+    pickingStart?.let { editingStart ->
+        TimePickerDialog(
+            title = if (editingStart) "Start time" else "End time",
+            initialHour = if (editingStart) startHour else endHour,
+            initialMinute = if (editingStart) startMinute else endMinute,
+            onConfirm = { hour, minute ->
+                if (editingStart) {
+                    startHour = hour
+                    startMinute = minute
+                } else {
+                    endHour = hour
+                    endMinute = minute
+                }
+                pickingStart = null
+            },
+            onDismiss = { pickingStart = null }
+        )
+    }
+}
+
+/** Read-only field that opens a time picker when tapped, so a time can never be half-typed. */
+@Composable
+internal fun TimeField(
+    label: String,
+    hour: Int,
+    minute: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        OutlinedTextField(
+            value = String.format("%02d:%02d", hour, minute),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        // Transparent overlay: a read-only text field would otherwise swallow the tap
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable(onClickLabel = "Change $label time", role = Role.Button, onClick = onClick)
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun TimePickerDialog(
+    title: String,
+    initialHour: Int,
+    initialMinute: Int,
+    onConfirm: (hour: Int, minute: Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val state = rememberTimePickerState(
+        initialHour = initialHour,
+        initialMinute = initialMinute,
+        is24Hour = true
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                TimePicker(state = state)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(state.hour, state.minute) }) { Text("OK") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         },
         shape = RoundedCornerShape(24.dp)
     )
