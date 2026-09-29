@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.BlockLog
+import kotlinx.coroutines.launch
 import com.example.ui.theme.AccentAmber
 import com.example.ui.theme.AccentCoral
 import com.example.ui.theme.AccentCyan
@@ -82,7 +84,7 @@ fun SettingsLogsScreen(
     backupStatus: String?,
     onClearLogs: () -> Unit,
     onResetAllRules: () -> Unit,
-    onExportRules: () -> String?,
+    onExportRules: suspend () -> String?,
     onImportRules: (String) -> Unit,
     onClearBackupStatus: () -> Unit,
     onSetThemeMode: (String) -> Unit,
@@ -98,6 +100,8 @@ fun SettingsLogsScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var importInputText by remember { mutableStateOf("") }
     var showResetConfirmDialog by remember { mutableStateOf(false) }
+    
+    val coroutineScope = rememberCoroutineScope()
 
     val dateFormat = remember { SimpleDateFormat("HH:mm:ss • MMM dd", Locale.getDefault()) }
 
@@ -288,9 +292,11 @@ fun SettingsLogsScreen(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                val json = onExportRules()
-                                exportedJsonText = json ?: "{\n  \"rules\": []\n}"
-                                showExportDialog = true
+                                coroutineScope.launch {
+                                    val json = onExportRules()
+                                    exportedJsonText = json ?: "{\n  \"rules\": []\n}"
+                                    showExportDialog = true
+                                }
                             },
                             modifier = Modifier.weight(1f).testTag("btn_export_json")
                         ) {

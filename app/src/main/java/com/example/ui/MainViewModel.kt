@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -89,7 +90,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             matchesQuery && matchesFilter
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _speedMetrics = MutableStateFlow(SpeedMetrics())
     val speedMetrics: StateFlow<SpeedMetrics> = _speedMetrics.asStateFlow()
@@ -295,12 +296,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun exportRules(): String? {
-        var json: String? = null
-        viewModelScope.launch {
-            json = firewallRepo.exportRulesJson()
-            _backupStatus.value = "Exported ${json?.length ?: 0} bytes of rules successfully"
-        }
+    suspend fun exportRules(): String? {
+        val json = firewallRepo.exportRulesJson()
+        _backupStatus.value = "Exported ${json?.length ?: 0} bytes of rules successfully"
         return json
     }
 

@@ -1,6 +1,13 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +41,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +60,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -101,12 +114,29 @@ fun FirewallScreen(
     val totalBlockedCount = remember(allAppUsages) {
         allAppUsages.count { it.rule.isWifiBlocked || it.rule.isMobileBlocked }
     }
-    val userCount = remember(allAppUsages) {
-        allAppUsages.count { !it.isSystemApp }
-    }
-    val systemCount = remember(allAppUsages) {
-        allAppUsages.count { it.isSystemApp }
-    }
+    val userCount = remember(allAppUsages) { allAppUsages.count { !it.isSystemApp } }
+    val systemCount = remember(allAppUsages) { allAppUsages.count { it.isSystemApp } }
+
+    // Infinite pulse animation for hero card
+    val infiniteTransition = rememberInfiniteTransition(label = "hero_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "ring_pulse"
+    )
+    val shimmerOffset by infiniteTransition.animateFloat(
+        initialValue = -1000f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer_offset"
+    )
 
     LazyColumn(
         modifier = modifier
@@ -115,127 +145,185 @@ fun FirewallScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Hero Firewall Status Card
+        // Premium Firewall Status Hero Card
         item {
+            val heroGradient = when {
+                isGlobalLock -> Brush.linearGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.errorContainer,
+                        MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
+                    )
+                )
+                isPaused -> Brush.linearGradient(
+                    colors = listOf(
+                        StatusPaused.copy(alpha = 0.25f),
+                        StatusPaused.copy(alpha = 0.08f)
+                    )
+                )
+                isRunning -> Brush.linearGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    )
+                )
+                else -> Brush.linearGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("firewall_status_card"),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = when {
-                        isGlobalLock -> MaterialTheme.colorScheme.errorContainer
-                        isPaused -> StatusPaused.copy(alpha = 0.2f)
-                        isRunning -> MaterialTheme.colorScheme.primaryContainer
-                        else -> MaterialTheme.colorScheme.surfaceVariant
-                    }
-                )
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(50.dp)
-                                .background(
-                                    when {
-                                        isGlobalLock -> MaterialTheme.colorScheme.error
-                                        isPaused -> StatusPaused
-                                        isRunning -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.outline
-                                    },
-                                    CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(heroGradient)
+                        .padding(22.dp)
+                ) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                imageVector = if (isRunning) Icons.Default.Shield else Icons.Default.Block,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = when {
-                                    isGlobalLock -> "Global Internet Lock"
-                                    isPaused -> "Firewall Paused"
-                                    isRunning -> "Firewall Active"
-                                    else -> "Firewall Inactive"
-                                },
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = when {
-                                    isGlobalLock -> MaterialTheme.colorScheme.onErrorContainer
-                                    isPaused -> MaterialTheme.colorScheme.onSurface
-                                    isRunning -> MaterialTheme.colorScheme.onPrimaryContainer
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-
-                            Text(
-                                text = when {
-                                    isGlobalLock -> "All apps isolated locally"
-                                    isPaused -> "All traffic temporarily permitted"
-                                    isRunning -> "$totalBlockedCount apps filtered locally"
-                                    else -> "Tap switch to enable protection"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Switch(
-                            checked = isRunning,
-                            onCheckedChange = { checked ->
-                                if (checked) onStartVpn() else onStopVpn()
-                            },
-                            modifier = Modifier.testTag("switch_firewall_master"),
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                checkedTrackColor = MaterialTheme.colorScheme.primary
-                            )
-                        )
-                    }
-
-                    // Quick Pause / Batch Controls
-                    AnimatedVisibility(visible = isRunning || isPaused) {
-                        Column {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            // Animated icon with pulsing ring
+                            Box(
+                                modifier = Modifier.size(64.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                if (isPaused) {
-                                    Button(
-                                        onClick = onResumeVpn,
-                                        modifier = Modifier.weight(1f),
-                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                                    ) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Resume Guard", fontSize = 12.sp)
-                                    }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = { onPauseVpn(15) },
-                                        modifier = Modifier.weight(1f).testTag("btn_pause_15m")
-                                    ) {
-                                        Icon(Icons.Default.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Pause 15m", fontSize = 12.sp)
-                                    }
+                                if (isRunning) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .scale(pulseScale)
+                                            .background(
+                                                if (isGlobalLock) StatusBlocked.copy(alpha = 0.18f)
+                                                else StatusAllowed.copy(alpha = 0.18f),
+                                                CircleShape
+                                            )
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .background(
+                                            when {
+                                                isGlobalLock -> MaterialTheme.colorScheme.error
+                                                isPaused -> StatusPaused
+                                                isRunning -> MaterialTheme.colorScheme.primary
+                                                else -> MaterialTheme.colorScheme.outline
+                                            },
+                                            CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isRunning) Icons.Default.Shield else Icons.Default.Block,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
 
-                                    OutlinedButton(
-                                        onClick = { onPauseVpn(60) },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("Pause 1h", fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(16.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = when {
+                                        isGlobalLock -> "Global Internet Lock"
+                                        isPaused -> "Firewall Paused"
+                                        isRunning -> "Firewall Active"
+                                        else -> "Firewall Inactive"
+                                    },
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when {
+                                        isGlobalLock -> MaterialTheme.colorScheme.onErrorContainer
+                                        isPaused -> MaterialTheme.colorScheme.onSurface
+                                        isRunning -> MaterialTheme.colorScheme.onPrimaryContainer
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = when {
+                                        isGlobalLock -> "All apps isolated locally"
+                                        isPaused -> "All traffic temporarily permitted"
+                                        isRunning -> "$totalBlockedCount apps filtered • ${allAppUsages.size} total"
+                                        else -> "Tap to enable protection"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Switch(
+                                checked = isRunning,
+                                onCheckedChange = { checked ->
+                                    if (checked) onStartVpn() else onStopVpn()
+                                },
+                                modifier = Modifier.testTag("switch_firewall_master"),
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                        }
+
+                        // Stats pills row
+                        if (isRunning) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StatPill(label = "Blocked", value = "$totalBlockedCount", color = StatusBlocked)
+                                StatPill(label = "Users", value = "$userCount", color = StatusAllowed)
+                                StatPill(label = "System", value = "$systemCount", color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+
+                        // Quick Pause / Resume Controls
+                        AnimatedVisibility(visible = isRunning || isPaused) {
+                            Column {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (isPaused) {
+                                        Button(
+                                            onClick = onResumeVpn,
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                        ) {
+                                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Resume Guard", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    } else {
+                                        OutlinedButton(
+                                            onClick = { onPauseVpn(15) },
+                                            modifier = Modifier.weight(1f).testTag("btn_pause_15m"),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Icon(Icons.Default.Pause, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Pause 15m", fontSize = 12.sp)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { onPauseVpn(60) },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Text("Pause 1h", fontSize = 12.sp)
+                                        }
                                     }
                                 }
                             }
@@ -262,10 +350,12 @@ fun FirewallScreen(
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -291,7 +381,12 @@ fun FirewallScreen(
                         FilterChip(
                             selected = isSelected,
                             onClick = { onFilterChange(filter) },
-                            label = { Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            label = { Text(label, fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal, fontSize = 13.sp) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                selectedLabelColor = MaterialTheme.colorScheme.primary
+                            ),
                             modifier = Modifier.testTag("filter_${filter.name.lowercase()}")
                         )
                     }
@@ -316,26 +411,28 @@ fun FirewallScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Syncing…", fontSize = 12.sp)
                         } else {
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = "Sync installed apps",
-                                modifier = Modifier.size(16.dp)
-                            )
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Sync Apps", fontSize = 12.sp)
                         }
                     }
-
                     Row {
                         TextButton(onClick = onBlockAll) {
-                            Text("Block All", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                            Text("Block All", fontSize = 12.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                         }
                         Spacer(modifier = Modifier.width(4.dp))
                         TextButton(onClick = onAllowAll) {
-                            Text("Allow All", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("Allow All", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
+            }
+        }
+
+        // Shimmer skeleton while refreshing
+        if (isRefreshing && appUsages.isEmpty()) {
+            items(8) {
+                ShimmerAppItemSkeleton(shimmerOffset)
             }
         }
 
@@ -353,28 +450,43 @@ fun FirewallScreen(
             )
         }
 
-        if (appUsages.isEmpty()) {
+        // Animated empty state
+        if (appUsages.isEmpty() && !isRefreshing) {
             item {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 48.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(vertical = 56.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
                             imageVector = Icons.Default.FilterList,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "No apps found matching criteria",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                            modifier = Modifier.size(40.dp)
                         )
                     }
+                    Text(
+                        text = "No apps match your filter",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Try a different search or filter option",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -390,5 +502,64 @@ fun FirewallScreen(
             },
             onDismiss = { activeLimitRule = null }
         )
+    }
+}
+
+@Composable
+private fun StatPill(label: String, value: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = color.copy(alpha = 0.12f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                text = value,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                color = color
+            )
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                color = color.copy(alpha = 0.8f),
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShimmerAppItemSkeleton(shimmerOffset: Float) {
+    val shimmerBrush = Brush.linearGradient(
+        colors = listOf(
+            Color.Gray.copy(alpha = 0.08f),
+            Color.Gray.copy(alpha = 0.2f),
+            Color.Gray.copy(alpha = 0.08f)
+        ),
+        start = Offset(shimmerOffset - 300f, 0f),
+        end = Offset(shimmerOffset + 300f, 0f)
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(modifier = Modifier.size(44.dp).clip(CircleShape).background(shimmerBrush))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
+                Box(modifier = Modifier.fillMaxWidth(0.5f).height(14.dp).clip(RoundedCornerShape(4.dp)).background(shimmerBrush))
+                Box(modifier = Modifier.fillMaxWidth(0.75f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(shimmerBrush))
+            }
+            Box(modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(shimmerBrush))
+            Box(modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(shimmerBrush))
+        }
     }
 }

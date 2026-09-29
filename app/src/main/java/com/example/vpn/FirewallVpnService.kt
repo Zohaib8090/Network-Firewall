@@ -26,6 +26,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -49,6 +51,7 @@ class FirewallVpnService : VpnService() {
     private val database by lazy { AppDatabase.getInstance(this) }
     private val appPreferences by lazy { AppPreferences(this) }
 
+    private val reconfigureMutex = Mutex()
     private val recentBlockedAlertTimestamps = mutableMapOf<String, Long>()
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -105,7 +108,7 @@ class FirewallVpnService : VpnService() {
         return START_STICKY
     }
 
-    private suspend fun reconfigureVpn() {
+    private suspend fun reconfigureVpn() = reconfigureMutex.withLock {
         val isPausedUntil = appPreferences.pausedUntil.first()
         val now = System.currentTimeMillis()
         val isPaused = isPausedUntil > now
@@ -199,7 +202,9 @@ class FirewallVpnService : VpnService() {
             builder.setSession("Smart Network Guard")
             builder.setMtu(1500)
             builder.addAddress("10.255.255.1", 30)
+            builder.addAddress("fd00:1:fd00:1:fd00:1:fd00:1", 128)
             builder.addRoute("0.0.0.0", 0)
+            builder.addRoute("::", 0)
 
             val configureIntent = Intent(this, MainActivity::class.java)
             val pendingConfig = PendingIntent.getActivity(
@@ -247,6 +252,7 @@ class FirewallVpnService : VpnService() {
                     // Parse IP Header for diagnostics & blocked attempt notification
                     val version = (buffer.get(0).toInt() shr 4) and 0x0F
                     if (version == 4 && length >= 20) {
+                        val ihl = (buffer.get(0).toInt() and 0x0F) * 4
                         val protocol = buffer.get(9).toInt() and 0xFF
                         val destIpBytes = ByteArray(4)
                         buffer.position(16)
@@ -254,8 +260,24 @@ class FirewallVpnService : VpnService() {
                         val destIp = InetAddress.getByAddress(destIpBytes).hostAddress ?: ""
 
                         var destPort = 0
-                        if ((protocol == 6 || protocol == 17) && length >= 24) { // TCP or UDP
-                            buffer.position(22)
+                        if ((protocol == 6 || protocol == 17) && length >= ihl + 4) { // TCP or UDP
+                            buffer.position(ihl + 2)
+                            destPort = buffer.short.toInt() and 0xFFFF
+                        }
+
+                        // Inspect blocked attempt
+                        val firstBlocked = blockedPackages.firstOrNull() ?: "unknown"
+                        handleBlockedAttempt(firstBlocked, destIp, destPort)
+                    } else if (version == 6 && length >= 40) {
+                        val protocol = buffer.get(6).toInt() and 0xFF
+                        val destIpBytes = ByteArray(16)
+                        buffer.position(24)
+                        buffer.get(destIpBytes)
+                        val destIp = InetAddress.getByAddress(destIpBytes).hostAddress ?: ""
+
+                        var destPort = 0
+                        if ((protocol == 6 || protocol == 17) && length >= 44) {
+                            buffer.position(42)
                             destPort = buffer.short.toInt() and 0xFFFF
                         }
 

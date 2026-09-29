@@ -2,13 +2,22 @@ package com.example.ui
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.net.VpnService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,6 +60,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -69,7 +81,7 @@ import com.example.vpn.VpnStatus
 
 enum class ScreenTab(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     FIREWALL("Firewall", Icons.Default.Shield),
-    MONITORING("Monitoring", Icons.Default.BarChart),
+    MONITORING("Monitor", Icons.Default.BarChart),
     SCHEDULES("Schedules", Icons.Default.Schedule),
     SETTINGS("Settings", Icons.Default.Settings)
 }
@@ -105,6 +117,18 @@ fun MainScreen(
     val onDemandEvent by viewModel.onDemandEvent.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
+    // Pulsing animation for the status dot
+    val infiniteTransition = rememberInfiniteTransition(label = "status_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+
     // VPN Permission Launcher
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -123,35 +147,40 @@ fun MainScreen(
         }
     }
 
+    val statusColor = when (vpnStatus) {
+        VpnStatus.ACTIVE -> StatusAllowed
+        VpnStatus.GLOBAL_LOCKED -> StatusBlocked
+        VpnStatus.PAUSED -> StatusPaused
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+    }
+    val isLive = vpnStatus == VpnStatus.ACTIVE || vpnStatus == VpnStatus.GLOBAL_LOCKED
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Animated status icon
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
-                                .background(
-                                    when (vpnStatus) {
-                                        VpnStatus.ACTIVE -> StatusAllowed.copy(alpha = 0.2f)
-                                        VpnStatus.GLOBAL_LOCKED -> StatusBlocked.copy(alpha = 0.2f)
-                                        VpnStatus.PAUSED -> StatusPaused.copy(alpha = 0.2f)
-                                        else -> MaterialTheme.colorScheme.surfaceVariant
-                                    },
-                                    CircleShape
-                                ),
+                                .size(36.dp)
+                                .background(statusColor.copy(alpha = 0.15f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
+                            // Outer pulse ring when live
+                            if (isLive) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .scale(pulseScale)
+                                        .background(statusColor.copy(alpha = 0.1f), CircleShape)
+                                )
+                            }
                             Icon(
                                 imageVector = if (isGlobalLock) Icons.Default.Lock else Icons.Default.Security,
                                 contentDescription = null,
-                                tint = when (vpnStatus) {
-                                    VpnStatus.ACTIVE -> StatusAllowed
-                                    VpnStatus.GLOBAL_LOCKED -> StatusBlocked
-                                    VpnStatus.PAUSED -> StatusPaused
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                },
+                                tint = statusColor,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -164,16 +193,27 @@ fun MainScreen(
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
-                            Text(
-                                text = when (vpnStatus) {
-                                    VpnStatus.ACTIVE -> "Protection Active • Profile: $activeProfile"
-                                    VpnStatus.GLOBAL_LOCKED -> "Traffic Locked"
-                                    VpnStatus.PAUSED -> "Protection Paused"
-                                    else -> "Firewall Idle"
-                                },
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Pulsing status dot
+                                Box(
+                                    modifier = Modifier
+                                        .size(if (isLive) 6.dp else 5.dp)
+                                        .then(if (isLive) Modifier.scale(pulseScale) else Modifier)
+                                        .background(statusColor, CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = when (vpnStatus) {
+                                        VpnStatus.ACTIVE -> "Active · $activeProfile"
+                                        VpnStatus.GLOBAL_LOCKED -> "Global Lock"
+                                        VpnStatus.PAUSED -> "Paused"
+                                        else -> "Idle"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 },
@@ -189,7 +229,7 @@ fun MainScreen(
                     .navigationBarsPadding()
                     .testTag("bottom_nav_bar"),
                 containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp
+                tonalElevation = 0.dp
             ) {
                 ScreenTab.entries.forEachIndexed { index, tab ->
                     val isSelected = selectedTab == index
@@ -200,8 +240,12 @@ fun MainScreen(
                             if (tab == ScreenTab.FIREWALL && blockedCount > 0) {
                                 BadgedBox(
                                     badge = {
-                                        Badge(containerColor = MaterialTheme.colorScheme.primary) {
-                                            Text(blockedCount.toString())
+                                        Badge(containerColor = StatusBlocked) {
+                                            Text(
+                                                blockedCount.toString(),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
                                         }
                                     }
                                 ) {
@@ -211,7 +255,20 @@ fun MainScreen(
                                 Icon(tab.icon, contentDescription = tab.title)
                             }
                         },
-                        label = { Text(tab.title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        label = {
+                            Text(
+                                tab.title,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
                         modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
                     )
                 }
@@ -219,62 +276,72 @@ fun MainScreen(
         }
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            when (selectedTab) {
-                0 -> FirewallScreen(
-                    vpnStatus = vpnStatus,
-                    isGlobalLock = isGlobalLock,
-                    appUsages = filteredApps,
-                    allAppUsages = allAppUsages,
-                    searchQuery = searchQuery,
-                    selectedFilter = selectedFilter,
-                    onStartVpn = startVpnAction,
-                    onStopVpn = { FirewallVpnService.stop(context) },
-                    onPauseVpn = { minutes -> viewModel.pauseFirewall(minutes) },
-                    onResumeVpn = { viewModel.resumeFirewall() },
-                    onSearchChange = { query -> viewModel.setSearchQuery(query) },
-                    onFilterChange = { filter -> viewModel.setSelectedFilter(filter) },
-                    onToggleWifi = { pkg, blocked -> viewModel.toggleWifi(pkg, blocked) },
-                    onToggleMobile = { pkg, blocked -> viewModel.toggleMobile(pkg, blocked) },
-                    onTempAccess = { pkg, min -> viewModel.setTemporaryAccess(pkg, min) },
-                    onAllowSession = { pkg -> viewModel.setAllowSession(pkg, true) },
-                    onUpdateLimits = { pkg, daily, weekly, monthly -> viewModel.updateDataLimits(pkg, daily, weekly, monthly) },
-                    onResetRule = { pkg -> viewModel.resetAppRule(pkg) },
-                    onBlockAll = { viewModel.blockAllApps() },
-                    onAllowAll = { viewModel.allowAllApps() },
-                    onTogglePin = { pkg, isPinned -> viewModel.setPinned(pkg, isPinned) },
-                    isRefreshing = isRefreshing,
-                    onRefresh = { viewModel.triggerManualRefresh() }
-                )
-                1 -> AnalyticsScreen(
-                    speedMetrics = speedMetrics,
-                    weeklyHistory = weeklyHistory,
-                    appUsages = allAppUsages,
-                    hasUsagePermission = hasUsagePermission
-                )
-                2 -> SchedulesScreen(
-                    isGlobalLock = isGlobalLock,
-                    activeProfile = activeProfile,
-                    schedules = schedules,
-                    onToggleGlobalLock = { locked -> viewModel.toggleGlobalInternetLock(locked) },
-                    onApplyProfile = { profile -> viewModel.applyProfile(profile) },
-                    onAddSchedule = { rule -> viewModel.addOrUpdateSchedule(rule) },
-                    onToggleSchedule = { id, enabled -> viewModel.toggleSchedule(id, enabled) },
-                    onDeleteSchedule = { id -> viewModel.deleteSchedule(id) }
-                )
-                3 -> SettingsLogsScreen(
-                    recentLogs = recentLogs,
-                    themeMode = themeMode,
-                    accentIndex = accentIndex,
-                    backupStatus = backupStatus,
-                    onClearLogs = { viewModel.clearBlockLogs() },
-                    onResetAllRules = { viewModel.resetAllRulesToDefault() },
-                    onExportRules = { viewModel.exportRules() },
-                    onImportRules = { json -> viewModel.importRules(json) },
-                    onClearBackupStatus = { viewModel.clearBackupStatus() },
-                    onSetThemeMode = { mode -> viewModel.setThemeMode(mode) },
-                    onSetAccentColor = { index -> viewModel.setAccentColor(index) },
-                    onTempAccess = { pkg, min -> viewModel.setTemporaryAccess(pkg, min) }
-                )
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    val direction = if (targetState > initialState) 1 else -1
+                    (slideInHorizontally { it * direction / 4 } + fadeIn(tween(220)))
+                        .togetherWith(slideOutHorizontally { -it * direction / 4 } + fadeOut(tween(180)))
+                },
+                label = "tab_transition"
+            ) { tab ->
+                when (tab) {
+                    0 -> FirewallScreen(
+                        vpnStatus = vpnStatus,
+                        isGlobalLock = isGlobalLock,
+                        appUsages = filteredApps,
+                        allAppUsages = allAppUsages,
+                        searchQuery = searchQuery,
+                        selectedFilter = selectedFilter,
+                        onStartVpn = startVpnAction,
+                        onStopVpn = { FirewallVpnService.stop(context) },
+                        onPauseVpn = { minutes -> viewModel.pauseFirewall(minutes) },
+                        onResumeVpn = { viewModel.resumeFirewall() },
+                        onSearchChange = { query -> viewModel.setSearchQuery(query) },
+                        onFilterChange = { filter -> viewModel.setSelectedFilter(filter) },
+                        onToggleWifi = { pkg, blocked -> viewModel.toggleWifi(pkg, blocked) },
+                        onToggleMobile = { pkg, blocked -> viewModel.toggleMobile(pkg, blocked) },
+                        onTempAccess = { pkg, min -> viewModel.setTemporaryAccess(pkg, min) },
+                        onAllowSession = { pkg -> viewModel.setAllowSession(pkg, true) },
+                        onUpdateLimits = { pkg, daily, weekly, monthly -> viewModel.updateDataLimits(pkg, daily, weekly, monthly) },
+                        onResetRule = { pkg -> viewModel.resetAppRule(pkg) },
+                        onBlockAll = { viewModel.blockAllApps() },
+                        onAllowAll = { viewModel.allowAllApps() },
+                        onTogglePin = { pkg, isPinned -> viewModel.setPinned(pkg, isPinned) },
+                        isRefreshing = isRefreshing,
+                        onRefresh = { viewModel.triggerManualRefresh() }
+                    )
+                    1 -> AnalyticsScreen(
+                        speedMetrics = speedMetrics,
+                        weeklyHistory = weeklyHistory,
+                        appUsages = allAppUsages,
+                        hasUsagePermission = hasUsagePermission
+                    )
+                    2 -> SchedulesScreen(
+                        isGlobalLock = isGlobalLock,
+                        activeProfile = activeProfile,
+                        schedules = schedules,
+                        onToggleGlobalLock = { locked -> viewModel.toggleGlobalInternetLock(locked) },
+                        onApplyProfile = { profile -> viewModel.applyProfile(profile) },
+                        onAddSchedule = { rule -> viewModel.addOrUpdateSchedule(rule) },
+                        onToggleSchedule = { id, enabled -> viewModel.toggleSchedule(id, enabled) },
+                        onDeleteSchedule = { id -> viewModel.deleteSchedule(id) }
+                    )
+                    3 -> SettingsLogsScreen(
+                        recentLogs = recentLogs,
+                        themeMode = themeMode,
+                        accentIndex = accentIndex,
+                        backupStatus = backupStatus,
+                        onClearLogs = { viewModel.clearBlockLogs() },
+                        onResetAllRules = { viewModel.resetAllRulesToDefault() },
+                        onExportRules = { viewModel.exportRules() },
+                        onImportRules = { json -> viewModel.importRules(json) },
+                        onClearBackupStatus = { viewModel.clearBackupStatus() },
+                        onSetThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                        onSetAccentColor = { index -> viewModel.setAccentColor(index) },
+                        onTempAccess = { pkg, min -> viewModel.setTemporaryAccess(pkg, min) }
+                    )
+                }
             }
         }
     }

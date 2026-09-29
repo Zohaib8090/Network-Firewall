@@ -21,6 +21,7 @@ private val BaseLightColorScheme = lightColorScheme(
     tertiary = ShieldTertiary,
     background = SurfaceLight,
     surface = SurfaceLight,
+    surfaceVariant = Color(0xFFE6F0EA),
     error = ErrorRed
 )
 
@@ -28,11 +29,14 @@ private val BaseDarkColorScheme = darkColorScheme(
     primary = EmeraldDarkPrimary,
     onPrimary = EmeraldDarkOnPrimary,
     primaryContainer = EmeraldDarkPrimaryContainer,
-    onPrimaryContainer = EmeraldDarkPrimaryContainer,
+    onPrimaryContainer = EmeraldDarkOnPrimaryContainer, // Fixed: was incorrectly set to primaryContainer
     secondary = ShieldDarkSecondary,
     tertiary = ShieldDarkTertiary,
     background = SurfaceDark,
     surface = SurfaceDark,
+    surfaceVariant = SurfaceDarkVariant,
+    surfaceContainer = GlassDark,
+    surfaceContainerHigh = GlassDarkElevated,
     error = ErrorRedDark
 )
 
@@ -40,12 +44,14 @@ private val OledColorScheme = darkColorScheme(
     primary = EmeraldDarkPrimary,
     onPrimary = Color.Black,
     primaryContainer = Color(0xFF003825),
-    onPrimaryContainer = Color(0xFF8CF8C7),
+    onPrimaryContainer = Color(0xFFC8F5E0),
     secondary = ShieldDarkSecondary,
     tertiary = ShieldDarkTertiary,
     background = Color.Black,
     surface = Color.Black,
-    surfaceVariant = Color(0xFF121212),
+    surfaceVariant = Color(0xFF0A0F0B),
+    surfaceContainer = Color(0xFF111611),
+    surfaceContainerHigh = Color(0xFF161C16),
     error = ErrorRedDark
 )
 
@@ -86,9 +92,18 @@ fun SmartNetworkGuardTheme(
             else -> EmeraldPrimary
         }
         if (isDark) {
-            baseScheme.copy(primary = accent, secondary = accent.copy(alpha = 0.8f))
+            baseScheme.copy(
+                primary = accent,
+                secondary = accent.copy(alpha = 0.7f),
+                primaryContainer = accent.copy(alpha = 0.15f),
+                onPrimaryContainer = accent
+            )
         } else {
-            baseScheme.copy(primary = accent, primaryContainer = accent.copy(alpha = 0.2f))
+            baseScheme.copy(
+                primary = accent,
+                primaryContainer = accent.copy(alpha = 0.15f),
+                onPrimaryContainer = accent.copy(alpha = 0.8f)
+            )
         }
     } else {
         baseScheme
