@@ -142,7 +142,7 @@ fun SettingsLogsScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Smart Network Guard has ZERO internet permissions. No tracking, no telemetry, and 0 KB network calls.",
+                            text = "Network-Firewall has ZERO internet permissions. No tracking, no telemetry, and 0 KB network calls.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

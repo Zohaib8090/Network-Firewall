@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Schedule start and end times are picked with a time picker instead of being typed into boxes that rewrote themselves on every keystroke.
 
 ### Changed
+- The app is now called Network-Firewall everywhere it is shown (top bar, notification titles, the VPN name in Android settings, README and docs), matching the repository and the launcher label. It was shown as "Smart Network Guard" in places.
 - New app icon: a shield with Wi-Fi waves on the app's emerald green, including a monochrome version for Android 13+ themed icons.
 - Live network speed is only measured while the Monitoring tab is open.
 

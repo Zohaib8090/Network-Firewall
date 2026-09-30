@@ -1,13 +1,13 @@
 # CLAUDE.md
 
-Smart Network Guard: a no-root Android firewall (Kotlin, Jetpack Compose, Room, DataStore, WorkManager) that blocks network access per app, separately for Wi-Fi and mobile data, using `VpnService`. Scaffolded from a Google AI Studio template, which is why the namespace is `com.example` and the application ID is `com.aistudio.networkfirewall.app`.
+Network-Firewall: a no-root Android firewall (Kotlin, Jetpack Compose, Room, DataStore, WorkManager) that blocks network access per app, separately for Wi-Fi and mobile data, using `VpnService`. Scaffolded from a Google AI Studio template, which is why the namespace is `com.example` and the application ID is `com.aistudio.networkfirewall.app`.
 
 ## Build and test
 
 - No Gradle wrapper is committed. CI (`.github/workflows/build_apk.yml`) pins Gradle 9.3.1 with `gradle/actions/setup-gradle`, then runs `gradle :app:testDebugUnitTest` and `gradle :app:assembleDebug`. Use JDK 21: Robolectric refuses to run SDK 36 tests on Java 17 (`requires Java 21`), which is what failed CI after the keystore fix. Locally, use Gradle 9.3.1 and an SDK containing `platforms;android-36.1`, with `sdk.dir` set in `local.properties`.
 - Unit tests (JVM and Robolectric): `gradle :app:testDebugUnitTest`. Compile only: `gradle :app:compileDebugKotlin`.
 - Signing configs are only created when their keystore exists (`debug.keystore` at the repo root, gitignored; release upload key via `KEYSTORE_PATH`). Otherwise debug builds use AGP's auto-generated debug key and release APKs are unsigned. Don't make a missing keystore fail the build again: that is what broke every CI run before.
-- The user-visible app name (`app_name`) is "Network-Firewall"; tests assert it.
+- The app is called "Network-Firewall" everywhere it is shown (`app_name`, top bar, notification titles, the VPN name in Android settings, docs), matching the repository; tests assert `app_name`. It used to be "Smart Network Guard", which survives only in internal identifiers that must not be renamed: the Room file `smart_network_guard.db` and DataStore `smart_guard_settings` (a new name would silently wipe users' saved rules and settings), the `smart_guard_*` notification channel IDs and work name (a new ID resets users' notification settings), and `SmartNetworkGuardTheme`.
 - Launcher icon: vector adaptive icon (`drawable/ic_launcher_{background,foreground,monochrome}.xml`) plus WebP mipmaps for API 24–25; `docs/icon.png` is the 512px version used in the README.
 - Screenshot test (`GreetingScreenshotTest`) uses Roborazzi and writes to `app/src/test/screenshots/`.
 

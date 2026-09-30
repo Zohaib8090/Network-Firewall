@@ -88,7 +88,7 @@ class FirewallVpnService : VpnService() {
             ACTION_START -> {
                 _stopReason.value = null
                 (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID_STOPPED)
-                startForeground(NOTIFICATION_ID_FOREGROUND, buildForegroundNotification("Smart Network Guard active", 0))
+                startForeground(NOTIFICATION_ID_FOREGROUND, buildForegroundNotification("Network-Firewall active", 0))
                 serviceScope.launch {
                     appPreferences.setVpnEnabled(true)
                     reconfigureVpn()
@@ -232,7 +232,7 @@ class FirewallVpnService : VpnService() {
 
         try {
             val builder = Builder()
-            builder.setSession("Smart Network Guard")
+            builder.setSession("Network-Firewall")
             builder.setMtu(1500)
             builder.addAddress(VPN_ADDRESS_V4, 30)
             builder.addRoute("0.0.0.0", 0)
@@ -568,7 +568,7 @@ class FirewallVpnService : VpnService() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID_FOREGROUND)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Smart Network Guard")
+            .setContentTitle("Network-Firewall")
             .setContentText(contentText)
             .setOngoing(true)
             .setContentIntent(pendingOpen)

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Smart Network Guard!
+Thanks for helping improve Network-Firewall!
 
 ## Getting set up
 

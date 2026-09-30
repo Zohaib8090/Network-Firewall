@@ -1,6 +1,6 @@
-<p align="center"><img src="docs/icon.png" alt="Smart Network Guard icon" width="128"></p>
+<p align="center"><img src="docs/icon.png" alt="Network-Firewall icon" width="128"></p>
 
-# Smart Network Guard
+# Network-Firewall
 
 A privacy-focused firewall for Android that controls internet access **per app**, separately for **Wi-Fi** and **mobile data**. It doesn't need root: it uses Android's built-in `VpnService` locally on the device, and no traffic is sent to any server.
 

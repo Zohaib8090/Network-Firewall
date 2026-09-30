@@ -1,6 +1,6 @@
 # Security Policy
 
-Smart Network Guard is a firewall, so a flaw that lets a blocked app reach the network, leaks traffic, or exposes the block log or rules to other apps is treated as a security issue.
+Network-Firewall is a firewall, so a flaw that lets a blocked app reach the network, leaks traffic, or exposes the block log or rules to other apps is treated as a security issue.
 
 ## Supported versions
 

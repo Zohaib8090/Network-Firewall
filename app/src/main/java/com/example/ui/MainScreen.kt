@@ -227,7 +227,7 @@ fun MainScreen(
 
                         Column {
                             Text(
-                                text = "Smart Network Guard",
+                                text = "Network-Firewall",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
