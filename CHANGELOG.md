@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Fixed
+- The "Allow it?" notification is never shown for system apps (apps that came with the phone). They can still be blocked from the app list.
 - Blocked connection attempts are now logged under the app that actually made them, instead of whichever blocked app came first in the list. The log records each app and destination at most once every 10 seconds, instead of one entry per packet.
 - Blocked apps can no longer reach the internet over IPv6.
 - Changing a rule while the firewall is switched off no longer turns it on.

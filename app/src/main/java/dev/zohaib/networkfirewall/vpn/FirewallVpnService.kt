@@ -339,6 +339,17 @@ class FirewallVpnService : VpnService() {
         return packages.firstOrNull { it in blockedPackages } ?: packages.firstOrNull()
     }
 
+    private val systemAppCache = ConcurrentHashMap<String, Boolean>()
+
+    /** True for apps that ship with the phone (including updated ones such as a preinstalled browser). */
+    private fun isSystemApp(packageName: String): Boolean = systemAppCache.getOrPut(packageName) {
+        try {
+            (packageManager.getApplicationInfo(packageName, 0).flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+        } catch (e: PackageManager.NameNotFoundException) {
+            false
+        }
+    }
+
     private suspend fun handleBlockedAttempt(packageName: String, destIp: String, destPort: Int) {
         val now = System.currentTimeMillis()
         val front = foregroundPackage
@@ -370,9 +381,10 @@ class FirewallVpnService : VpnService() {
 
         // Only the app the user is using right now gets a prompt. Traffic from blocked apps in the
         // background (every app, during Global Lock) is logged above but never notifies.
-        if (!isFront || packageName in promptSuppressed) return
-        val lastAlert = recentBlockedAlertTimestamps[packageName] ?: 0L
-        if (now - lastAlert < PROMPT_THROTTLE_MS) return
+        // System apps never prompt either; they can still be blocked from the list.
+        val isSystem = isFront && isSystemApp(packageName)
+        val sinceLast = now - (recentBlockedAlertTimestamps[packageName] ?: 0L)
+        if (!PromptPolicy.shouldPrompt(isFront, isSystem, packageName in promptSuppressed, sinceLast, PROMPT_THROTTLE_MS)) return
         recentBlockedAlertTimestamps[packageName] = now
         if (appPreferences.notifyBlockedAttempts.first()) {
             showBlockedAttemptNotification(packageName, appName)

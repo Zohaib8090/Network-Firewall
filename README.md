@@ -31,7 +31,7 @@ Because it uses the VPN slot, it can't run at the same time as another VPN app.
 - Android 7.0 (API 24) or newer; targets Android 16 (API 36).
 - Permissions you grant when asked:
   - **VPN connection**: required for blocking.
-  - **Usage access** (recommended): lets the app see which app is open, so it can ask when you open a blocked app; also gives accurate per-app usage numbers. Without it there are no prompts, and "Allow while open" becomes a 30-minute allowance.
+  - **Usage access** (recommended): lets the app see which app is open, so it can ask when you open a blocked app; also gives accurate per-app usage numbers. Without it there are no prompts, and "Allow while open" becomes a 30-minute allowance. System apps (those that came with the phone) never trigger a prompt.
   - **Notifications**: for blocked-attempt and data-limit alerts (Android 13+ asks when you first turn the firewall on; the firewall works without it).
   - **Alarms & reminders** (optional, Android 12+): lets schedules and timers switch on the exact minute; without it they may run a few minutes late.
 
