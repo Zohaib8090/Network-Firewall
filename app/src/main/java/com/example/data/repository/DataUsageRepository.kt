@@ -1,20 +1,19 @@
 package com.example.data.repository
 
-import android.app.AppOpsManager
 import android.app.usage.NetworkStats
 import android.app.usage.NetworkStatsManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.net.ConnectivityManager
 import android.net.TrafficStats
-import android.os.Build
-import android.os.Process
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
+import com.example.data.UsageAccess
 import com.example.data.model.AppRule
 import com.example.data.model.AppUsageInfo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
@@ -88,24 +87,7 @@ class DataUsageRepository(private val context: Context) {
 
     private val iconCache = ConcurrentHashMap<String, ImageBitmap>()
 
-    fun hasUsageStatsPermission(): Boolean {
-        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appOps.unsafeCheckOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            appOps.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName
-            )
-        }
-        return mode == AppOpsManager.MODE_ALLOWED
-    }
+    fun hasUsageStatsPermission(): Boolean = UsageAccess.isGranted(context)
 
     fun measureCurrentSpeed(): SpeedMetrics {
         val currentRx = TrafficStats.getTotalRxBytes()
@@ -138,10 +120,11 @@ class DataUsageRepository(private val context: Context) {
     }
 
     /**
-     * Installed apps with labels and icons. Icons are rasterized here, off the main thread,
-     * and cached by package so later reloads only pay for newly installed apps.
+     * Installed apps with their labels. Icons come from the cache when already loaded; pass
+     * [loadMissingIcons] = true to load the rest here, or use [loadIconsProgressively] to fill
+     * them in afterwards so the list can show up first.
      */
-    suspend fun loadInstalledApps(includeIcons: Boolean = true): List<InstalledApp> = withContext(Dispatchers.IO) {
+    suspend fun loadInstalledApps(loadMissingIcons: Boolean = false): List<InstalledApp> = withContext(Dispatchers.IO) {
         val installedApps = packageManager.getInstalledApplications(0)
         installedApps.filter { it.packageName != context.packageName }.map { app ->
             val label = try {
@@ -154,8 +137,27 @@ class DataUsageRepository(private val context: Context) {
                 appName = label,
                 uid = app.uid,
                 isSystemApp = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
-                icon = if (includeIcons) loadIcon(app) else null
+                icon = iconCache[app.packageName] ?: if (loadMissingIcons) loadIcon(app.packageName) else null
             )
+        }
+    }
+
+    /**
+     * Loads icons in small batches, off the main thread, calling [onBatch] with the full list after
+     * each one so the screen fills in gradually. Apps earlier in [apps] get their icons first.
+     */
+    suspend fun loadIconsProgressively(
+        apps: List<InstalledApp>,
+        batchSize: Int = 30,
+        onBatch: (List<InstalledApp>) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        var current = apps
+        for (batch in apps.filter { it.icon == null }.chunked(batchSize)) {
+            ensureActive()
+            val loaded = batch.mapNotNull { app -> loadIcon(app.packageName)?.let { app.packageName to it } }.toMap()
+            if (loaded.isEmpty()) continue
+            current = current.map { app -> loaded[app.packageName]?.let { app.copy(icon = it) } ?: app }
+            onBatch(current)
         }
     }
 
@@ -163,14 +165,14 @@ class DataUsageRepository(private val context: Context) {
         iconCache.clear()
     }
 
-    private fun loadIcon(app: ApplicationInfo): ImageBitmap? {
-        iconCache[app.packageName]?.let { return it }
+    private fun loadIcon(packageName: String): ImageBitmap? {
+        iconCache[packageName]?.let { return it }
         val bitmap = try {
-            packageManager.getApplicationIcon(app).toBitmap(ICON_SIZE_PX, ICON_SIZE_PX).asImageBitmap()
+            packageManager.getApplicationIcon(packageName).toBitmap(ICON_SIZE_PX, ICON_SIZE_PX).asImageBitmap()
         } catch (e: Exception) {
             null
         }
-        if (bitmap != null) iconCache[app.packageName] = bitmap
+        if (bitmap != null) iconCache[packageName] = bitmap
         return bitmap
     }
 
@@ -209,7 +211,7 @@ class DataUsageRepository(private val context: Context) {
     }
 
     suspend fun getAppUsageList(rulesMap: Map<String, AppRule>): List<AppUsageInfo> {
-        val apps = loadInstalledApps(includeIcons = false)
+        val apps = loadInstalledApps()
         val usage = loadUsageByUid(apps.map { it.uid })
         return buildAppUsageList(apps, usage, rulesMap)
     }

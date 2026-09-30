@@ -219,7 +219,7 @@ fun AppRuleItem(
                                     color = StatusAllowed.copy(alpha = 0.2f)
                                 ) {
                                     Text(
-                                        text = "Session allowed",
+                                        text = "Allowed while open",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = StatusAllowed,
@@ -341,7 +341,7 @@ fun AppRuleItem(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Allow for this session") },
+                            text = { Text("Allow while app is open") },
                             onClick = {
                                 showMenu = false
                                 onAllowSessionClick()

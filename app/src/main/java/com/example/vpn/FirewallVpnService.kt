@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -18,6 +19,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.data.UsageAccess
 import com.example.data.db.AppDatabase
 import com.example.data.model.BlockLog
 import com.example.data.preferences.AppPreferences
@@ -29,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -55,6 +58,10 @@ class FirewallVpnService : VpnService() {
     private val database by lazy { AppDatabase.getInstance(this) }
     private val appPreferences by lazy { AppPreferences(this) }
 
+    // The app the user is looking at right now (null when unknown); only that app gets a prompt
+    @Volatile private var foregroundPackage: String? = null
+    private var foregroundJob: Job? = null
+
     private val recentBlockedAlertTimestamps = ConcurrentHashMap<String, Long>()
     private val recentBlockLogTimestamps = ConcurrentHashMap<String, Long>()
 
@@ -80,6 +87,7 @@ class FirewallVpnService : VpnService() {
         isRunning = true
         connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         connectivityManager?.registerDefaultNetworkCallback(networkCallback)
+        startForegroundWatcher()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -172,9 +180,7 @@ class FirewallVpnService : VpnService() {
         isCurrentWifi = isWifi
 
         val cal = Calendar.getInstance()
-        val hour = cal.get(Calendar.HOUR_OF_DAY)
-        val minute = cal.get(Calendar.MINUTE)
-        val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
+        val dayCode = when (cal.get(Calendar.DAY_OF_WEEK)) {
             Calendar.MONDAY -> "MON"
             Calendar.TUESDAY -> "TUE"
             Calendar.WEDNESDAY -> "WED"
@@ -185,43 +191,22 @@ class FirewallVpnService : VpnService() {
             else -> "MON"
         }
 
-        val scheduledBlockedPackages = mutableSetOf<String>()
-        for (schedule in activeSchedules) {
-            if (schedule.isActiveAt(hour, minute, dayOfWeek)) {
-                val shouldBlockOnCurrent = if (isWifi) schedule.blockWifi else schedule.blockMobile
-                if (shouldBlockOnCurrent) {
-                    if (schedule.targetPackageNames.trim() == "ALL") {
-                        allRules.forEach { scheduledBlockedPackages.add(it.packageName) }
-                    } else {
-                        schedule.targetPackageNames.split(",").forEach { pkg ->
-                            val cleanPkg = pkg.trim()
-                            if (cleanPkg.isNotEmpty()) scheduledBlockedPackages.add(cleanPkg)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Collect blocked packages
-        val blockedPackages = mutableSetOf<String>()
-        if (isGlobalLock) {
-            val pm = packageManager
-            val installed = pm.getInstalledApplications(0)
-            for (app in installed) {
-                if (app.packageName != packageName) {
-                    blockedPackages.add(app.packageName)
-                }
-            }
-        } else {
-            for (rule in allRules) {
-                if (rule.packageName == packageName) continue
-                val ruleBlocked = rule.isEffectivelyBlocked(isWifi, now)
-                val scheduleBlocked = scheduledBlockedPackages.contains(rule.packageName)
-                if (ruleBlocked || scheduleBlocked) {
-                    blockedPackages.add(rule.packageName)
-                }
-            }
-        }
+        val blockedPackages = BlockPlanner.blockedPackages(
+            rules = allRules,
+            installedPackages = if (isGlobalLock) {
+                packageManager.getInstalledApplications(0).map { it.packageName }
+            } else {
+                emptyList()
+            },
+            schedules = activeSchedules,
+            isGlobalLock = isGlobalLock,
+            isWifi = isWifi,
+            ownPackage = packageName,
+            now = now,
+            hour = cal.get(Calendar.HOUR_OF_DAY),
+            minute = cal.get(Calendar.MINUTE),
+            dayCode = dayCode
+        )
 
         teardownTunnel()
 
@@ -390,24 +375,14 @@ class FirewallVpnService : VpnService() {
             )
         )
 
-        // Emit to Live UI
-        val event = BlockedAttemptEvent(
-            packageName = packageName,
-            appName = appName,
-            timestamp = now,
-            networkType = netType,
-            destIp = destIp,
-            destPort = destPort
-        )
-        _blockedEventsFlow.emit(event)
-
-        // Throttle notifications to once per 10 seconds per package
-        if (now - lastAlert > 10_000L) {
-            recentBlockedAlertTimestamps[packageName] = now
-            val notifyAllowed = appPreferences.notifyBlockedAttempts.first()
-            if (notifyAllowed) {
-                showBlockedAttemptNotification(packageName, appName, netType)
-            }
+        // Only the app the user is using right now gets a prompt. Traffic from blocked apps in the
+        // background (every app, during Global Lock) is logged above but never notifies.
+        val front = foregroundPackage
+        if (front == null || front != packageName || packageName in promptSuppressed) return
+        if (now - lastAlert < PROMPT_THROTTLE_MS) return
+        recentBlockedAlertTimestamps[packageName] = now
+        if (appPreferences.notifyBlockedAttempts.first()) {
+            showBlockedAttemptNotification(packageName, appName)
         }
     }
 
@@ -429,49 +404,88 @@ class FirewallVpnService : VpnService() {
         }
     }
 
-    private fun showBlockedAttemptNotification(packageName: String, appName: String, networkType: String) {
-        val intent = Intent(this, MainActivity::class.java).apply {
+    /** Asks whether the app the user just opened may use the internet. */
+    private fun showBlockedAttemptNotification(packageName: String, appName: String) {
+        val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("prompt_package", packageName)
         }
-        val pendingIntent = PendingIntent.getActivity(
-            this, packageName.hashCode(), intent,
+        val openPending = PendingIntent.getActivity(
+            this, packageName.hashCode(), openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Quick action: Allow 10 min
-        val allow10mIntent = Intent(this, FirewallActionReceiver::class.java).apply {
-            action = FirewallActionReceiver.ACTION_ALLOW_10M
-            putExtra(FirewallActionReceiver.EXTRA_PACKAGE, packageName)
+        fun action(action: String, tag: String): PendingIntent {
+            val intent = Intent(this, FirewallActionReceiver::class.java).apply {
+                this.action = action
+                putExtra(FirewallActionReceiver.EXTRA_PACKAGE, packageName)
+            }
+            return PendingIntent.getBroadcast(
+                this, (packageName + tag).hashCode(), intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
         }
-        val allow10mPending = PendingIntent.getBroadcast(
-            this, (packageName + "_10m").hashCode(), allow10mIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // Quick action: Keep Blocked (dismiss)
-        val dismissIntent = Intent(this, FirewallActionReceiver::class.java).apply {
-            action = FirewallActionReceiver.ACTION_KEEP_BLOCKED
-            putExtra(FirewallActionReceiver.EXTRA_PACKAGE, packageName)
-        }
-        val dismissPending = PendingIntent.getBroadcast(
-            this, (packageName + "_keep").hashCode(), dismissIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERTS)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Blocked Access: $appName")
-            .setContentText("Attempted connection on $networkType. Choose an action:")
+            .setContentTitle("$appName is blocked")
+            .setContentText("It tried to use the internet. Allow it?")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .addAction(0, "Allow 10 Min", allow10mPending)
-            .addAction(0, "Keep Blocked", dismissPending)
+            .setTimeoutAfter(PROMPT_TIMEOUT_MS)
+            .setContentIntent(openPending)
+            .addAction(0, "Allow while open", action(FirewallActionReceiver.ACTION_ALLOW_SESSION, "_session"))
+            .addAction(0, "Allow 10 min", action(FirewallActionReceiver.ACTION_ALLOW_10M, "_10m"))
+            .addAction(0, "Keep blocked", action(FirewallActionReceiver.ACTION_KEEP_BLOCKED, "_keep"))
             .build()
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(packageName.hashCode(), notification)
+    }
+
+    /**
+     * Keeps [foregroundPackage] current and ends "allow while open" allowances once their app has
+     * been closed. Needs Usage access: without it nobody can tell which app is open.
+     */
+    private fun startForegroundWatcher() {
+        foregroundJob?.cancel()
+        foregroundJob = serviceScope.launch {
+            val tracker = ForegroundTracker(getSystemService(UsageStatsManager::class.java))
+            val sessionPolicy = SessionEndPolicy(SESSION_END_GRACE_MS, SESSION_NEVER_OPENED_TIMEOUT_MS)
+            while (isActive) {
+                try {
+                    if (!UsageAccess.isGranted(this@FirewallVpnService)) {
+                        foregroundPackage = null
+                        // No way to see an app close, so no "while open" allowance can end by itself
+                        if (database.appRuleDao().clearAllSessions() > 0) reconfigureVpn()
+                        delay(NO_ACCESS_POLL_MS)
+                        continue
+                    }
+
+                    val previous = foregroundPackage
+                    val front = tracker.poll()
+                    foregroundPackage = front
+                    if (previous != null && previous != front) onLeftForeground(previous)
+
+                    val sessions = database.appRuleDao().getSessionAllowedPackages()
+                    val ended = sessionPolicy.update(sessions, front, System.currentTimeMillis())
+                    if (ended.isNotEmpty()) {
+                        ended.forEach { database.appRuleDao().setAllowSession(it, false) }
+                        reconfigureVpn()
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Foreground watcher failed", e)
+                }
+                delay(FOREGROUND_POLL_MS)
+            }
+        }
+    }
+
+    private fun onLeftForeground(packageName: String) {
+        promptSuppressed.remove(packageName)
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(packageName.hashCode())
     }
 
     private fun teardownTunnel() {
@@ -599,6 +613,21 @@ class FirewallVpnService : VpnService() {
         private const val VPN_ADDRESS_V6 = "fd00:ff:ff::1"
 
         private const val BLOCK_LOG_THROTTLE_MS = 10_000L
+        private const val PROMPT_THROTTLE_MS = 30_000L
+        private const val PROMPT_TIMEOUT_MS = 2 * 60 * 1000L
+        private const val FOREGROUND_POLL_MS = 2_000L
+        private const val NO_ACCESS_POLL_MS = 10_000L
+        // Wait this long after an app closes before blocking it again (covers permission dialogs, camera, etc.)
+        private const val SESSION_END_GRACE_MS = 15_000L
+        // An app allowed "while open" that is never opened is blocked again after this long
+        private const val SESSION_NEVER_OPENED_TIMEOUT_MS = 10 * 60 * 1000L
+
+        /** Apps the user chose "Keep blocked" for; no more prompts until the app has been closed. */
+        private val promptSuppressed: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        fun suppressPrompt(packageName: String) {
+            promptSuppressed.add(packageName)
+        }
         private const val OWNER_CACHE_TTL_MS = 30_000L
         private const val OWNER_CACHE_MAX_ENTRIES = 512
 

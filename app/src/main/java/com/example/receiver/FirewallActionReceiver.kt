@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.example.data.db.AppDatabase
+import com.example.data.repository.FirewallRepository
 import com.example.vpn.FirewallVpnService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +36,7 @@ class FirewallActionReceiver : BroadcastReceiver() {
                         FirewallVpnService.reload(context)
                     }
                     ACTION_ALLOW_SESSION -> {
-                        db.appRuleDao().setAllowSession(packageName, true)
+                        FirewallRepository(context).allowWhileOpen(packageName)
                         FirewallVpnService.reload(context)
                     }
                     ACTION_ALWAYS_ALLOW -> {
@@ -43,7 +44,8 @@ class FirewallActionReceiver : BroadcastReceiver() {
                         FirewallVpnService.reload(context)
                     }
                     ACTION_KEEP_BLOCKED -> {
-                        // User dismissed notification, rule remains blocked
+                        // Stay blocked and stop asking until this app has been closed and reopened
+                        FirewallVpnService.suppressPrompt(packageName)
                     }
                 }
             } finally {

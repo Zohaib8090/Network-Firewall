@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
  * Data Pipeline:
  * 1. Intercepts intent.data.schemeSpecificPart (packageName) and queries PackageManager for UID/meta.
  * 2. Inserts or deletes package metadata in Room DB asynchronously.
- * 3. Applies default firewall policies (Block Mobile Data by default) for newly registered UIDs.
+ * 3. Registers newly installed apps with nothing blocked; the user decides what to block.
  * 4. Notifies active VpnService memory cache to reload dynamic firewall filtering rules instantly.
  */
 class PackageChangeReceiver : BroadcastReceiver() {
@@ -45,8 +45,8 @@ class PackageChangeReceiver : BroadcastReceiver() {
                             } catch (e: PackageManager.NameNotFoundException) {
                                 Log.w("PackageChangeReceiver", "Package UID query failed for $packageName", e)
                             }
-                            // Default firewall policy: Block Mobile Data by default for new user apps
-                            repository.onPackageAdded(packageName, blockMobileByDefault = true)
+                            // New apps start with nothing blocked
+                            repository.onPackageAdded(packageName)
                             // Notify active VpnService to update memory cache & filtering rules immediately
                             FirewallVpnService.reload(context)
                         }

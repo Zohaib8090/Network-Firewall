@@ -13,6 +13,9 @@ interface AppRuleDao {
     @Query("SELECT * FROM app_rules ORDER BY isPinned DESC, appName ASC")
     fun getAllRules(): Flow<List<AppRule>>
 
+    @Query("SELECT packageName FROM app_rules")
+    suspend fun getAllPackageNames(): List<String>
+
     @Query("SELECT * FROM app_rules WHERE packageName = :packageName LIMIT 1")
     suspend fun getRuleByPackage(packageName: String): AppRule?
 
@@ -39,6 +42,12 @@ interface AppRuleDao {
 
     @Query("UPDATE app_rules SET allowSession = :allow WHERE packageName = :packageName")
     suspend fun setAllowSession(packageName: String, allow: Boolean)
+
+    @Query("SELECT packageName FROM app_rules WHERE allowSession = 1")
+    suspend fun getSessionAllowedPackages(): List<String>
+
+    @Query("UPDATE app_rules SET allowSession = 0 WHERE allowSession = 1")
+    suspend fun clearAllSessions(): Int
 
     @Query("UPDATE app_rules SET isWifiBlocked = :blockWifi, isMobileBlocked = :blockMobile")
     suspend fun setAllToggles(blockWifi: Boolean, blockMobile: Boolean)

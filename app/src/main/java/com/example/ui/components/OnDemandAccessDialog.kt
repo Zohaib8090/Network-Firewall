@@ -193,7 +193,7 @@ fun OnDemandAccessBottomSheet(
             ) {
                 Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Allow for this session")
+                Text("Allow while app is open")
             }
 
             Spacer(modifier = Modifier.height(8.dp))

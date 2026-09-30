@@ -3,6 +3,7 @@ package com.example.data.repository
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import com.example.data.UsageAccess
 import com.example.data.db.AppDatabase
 import com.example.data.model.AppRule
 import com.example.data.model.BlockLog
@@ -49,7 +50,20 @@ class FirewallRepository(private val context: Context) {
     }
 
     suspend fun setAllowSession(packageName: String, allow: Boolean) {
-        appRuleDao.setAllowSession(packageName, allow)
+        if (allow) allowWhileOpen(packageName) else appRuleDao.setAllowSession(packageName, false)
+    }
+
+    /**
+     * Allows an app until it is closed; the firewall ends the allowance once the app has left the
+     * screen. That needs Usage access to see which app is open, so without it the allowance lasts a
+     * fixed 30 minutes instead of staying on forever.
+     */
+    suspend fun allowWhileOpen(packageName: String) {
+        if (UsageAccess.isGranted(context)) {
+            appRuleDao.setAllowSession(packageName, true)
+        } else {
+            setTemporaryAccess(packageName, NO_USAGE_ACCESS_ALLOW_MINUTES)
+        }
     }
 
     suspend fun updateDataLimit(packageName: String, dailyBytes: Long, weeklyBytes: Long, monthlyBytes: Long) {
@@ -177,7 +191,8 @@ class FirewallRepository(private val context: Context) {
         }
     }
 
-    suspend fun onPackageAdded(packageName: String, blockMobileByDefault: Boolean = true) = withContext(Dispatchers.IO) {
+    /** A new app starts with nothing blocked; the user decides what to block. */
+    suspend fun onPackageAdded(packageName: String) = withContext(Dispatchers.IO) {
         if (packageName == context.packageName) return@withContext
         val pm = context.packageManager
         try {
@@ -194,7 +209,7 @@ class FirewallRepository(private val context: Context) {
                     packageName = packageName,
                     appName = label,
                     isWifiBlocked = false,
-                    isMobileBlocked = if (isSystem) false else blockMobileByDefault,
+                    isMobileBlocked = false,
                     isSystemApp = isSystem
                 )
                 appRuleDao.insertRule(newRule)
@@ -224,55 +239,45 @@ class FirewallRepository(private val context: Context) {
                 // Update label and system flag, preserving rules
                 appRuleDao.updateRule(existing.copy(appName = label, isSystemApp = isSystem))
             } else {
-                onPackageAdded(packageName, blockMobileByDefault = true)
+                onPackageAdded(packageName)
             }
         } catch (e: Exception) {
             // Ignored
         }
     }
 
-    suspend fun syncInstalledApps(blockMobileForNewApps: Boolean = true) = withContext(Dispatchers.IO) {
+    /**
+     * Makes sure every installed app (except this one) has a rule. New rules start with nothing
+     * blocked; existing rules are never touched.
+     */
+    suspend fun syncInstalledApps() = withContext(Dispatchers.IO) {
         val pm = context.packageManager
         val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-        val installedPkgSet = installed.map { it.packageName }.toSet()
+        val known = appRuleDao.getAllPackageNames().toHashSet()
         val newRules = mutableListOf<AppRule>()
 
         for (app in installed) {
             // Do not firewall our own app
             if (app.packageName == context.packageName) continue
-            val existing = appRuleDao.getRuleByPackage(app.packageName)
-            if (existing == null) {
-                val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                val label = try {
-                    pm.getApplicationLabel(app).toString()
-                } catch (e: Exception) {
-                    app.packageName
-                }
-                newRules.add(
-                    AppRule(
-                        packageName = app.packageName,
-                        appName = label,
-                        isWifiBlocked = false,
-                        isMobileBlocked = if (isSystem) false else blockMobileForNewApps,
-                        isSystemApp = isSystem
-                    )
-                )
+            if (app.packageName in known) continue
+            val isSystem = (app.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val label = try {
+                pm.getApplicationLabel(app).toString()
+            } catch (e: Exception) {
+                app.packageName
             }
+            newRules.add(
+                AppRule(
+                    packageName = app.packageName,
+                    appName = label,
+                    isWifiBlocked = false,
+                    isMobileBlocked = false,
+                    isSystemApp = isSystem
+                )
+            )
         }
         if (newRules.isNotEmpty()) {
             appRuleDao.insertRules(newRules)
-        }
-
-        // Clean up any stale uninstalled packages from database
-        val allStoredRules = appRuleDao.getAllRules()
-        // Note: we can clean up any rules whose packageName is no longer installed
-        // We'll perform a quick cleanup check
-        try {
-            for (app in installed) {
-                // Keep installed
-            }
-        } catch (e: Exception) {
-            // Ignored
         }
     }
 
@@ -326,5 +331,9 @@ class FirewallRepository(private val context: Context) {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private companion object {
+        const val NO_USAGE_ACCESS_ALLOW_MINUTES = 30
     }
 }

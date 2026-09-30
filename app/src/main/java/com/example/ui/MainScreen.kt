@@ -117,11 +117,13 @@ fun MainScreen(
     val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
     val onDemandEvent by viewModel.onDemandEvent.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val isLoadingApps by viewModel.isLoadingApps.collectAsStateWithLifecycle()
     val stopReason by viewModel.stopReason.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var notificationHintShown by rememberSaveable { mutableStateOf(false) }
+    var usageHintShown by rememberSaveable { mutableStateOf(false) }
 
     // VPN Permission Launcher
     val vpnPermissionLauncher = rememberLauncherForActivityResult(
@@ -173,6 +175,22 @@ fun MainScreen(
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             startVpnFlow()
+        }
+    }
+
+    // The "allow this app?" prompt appears when a blocked app is opened, and Android only lets this app
+    // see which app is open once Usage access is on. Say so once per launch after the firewall starts.
+    LaunchedEffect(vpnStatus, hasUsagePermission) {
+        val active = vpnStatus == VpnStatus.ACTIVE || vpnStatus == VpnStatus.GLOBAL_LOCKED
+        if (!active || hasUsagePermission || usageHintShown) return@LaunchedEffect
+        usageHintShown = true
+        val result = snackbarHostState.showSnackbar(
+            message = "To be asked when you open a blocked app, turn on Usage access for Network-Firewall.",
+            actionLabel = "Open settings",
+            duration = SnackbarDuration.Long
+        )
+        if (result == SnackbarResult.ActionPerformed) {
+            context.startActivity(Intent(AndroidSettings.ACTION_USAGE_ACCESS_SETTINGS))
         }
     }
 
@@ -310,7 +328,8 @@ fun MainScreen(
                     onAllowAll = { viewModel.allowAllApps() },
                     onTogglePin = { pkg, isPinned -> viewModel.setPinned(pkg, isPinned) },
                     isRefreshing = isRefreshing,
-                    onRefresh = { viewModel.triggerManualRefresh() }
+                    onRefresh = { viewModel.triggerManualRefresh() },
+                    isLoadingApps = isLoadingApps
                 )
                 1 -> {
                     // Collected here, not at the top, so the per-second updates only recompose this tab

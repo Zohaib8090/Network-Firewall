@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AppRule
@@ -22,6 +23,7 @@ import com.example.vpn.BlockedAttemptEvent
 import com.example.vpn.FirewallVpnService
 import com.example.vpn.VpnStatus
 import com.example.vpn.VpnStopReason
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,10 +36,14 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class AppFilter {
     ALL, USER, SYSTEM, BLOCKED
 }
+
+private const val TAG = "MainViewModel"
 
 /**
  * A rule change shown in the UI before the database confirms it. Only the fields the user
@@ -165,19 +171,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    /** True until the first list of installed apps is ready, so the screen can say it is scanning. */
+    private val _isLoadingApps = MutableStateFlow(true)
+    val isLoadingApps: StateFlow<Boolean> = _isLoadingApps.asStateFlow()
+
+    private val loadMutex = Mutex()
+
     init {
         // Schedule periodic check
         ScheduleWorker.schedulePeriodicCheck(application)
 
-        // Load installed apps (labels, icons) and usage once up front
+        // First launch and every launch: show the app list as soon as the names are known (the
+        // screen is usable straight away), then create rules for new apps, then fill in icons.
         viewModelScope.launch(Dispatchers.IO) {
-            firewallRepo.syncInstalledApps()
-            reloadInstalledApps()
+            try {
+                reloadInstalledApps()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not load the installed apps", e)
+            } finally {
+                _isLoadingApps.value = false
+            }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                firewallRepo.syncInstalledApps()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not create rules for the installed apps", e)
+            }
         }
 
         // Observe rules from DB; only installs/uninstalls (a changed package set) reload app metadata
         viewModelScope.launch {
-            var knownPackages: Set<String>? = null
             firewallRepo.allRules.collect { rules ->
                 val rulesMap = rules.associateBy { it.packageName }
                 _dbRules.value = rulesMap
@@ -187,11 +215,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         edit.unconfirmedAgainst(dbRule)?.let { pkg to it }
                     }.toMap()
                 }
+                // Reload the app metadata only when an app was installed or removed since the list was
+                // loaded; the first sync just creates rules for apps that are already listed.
+                val listed = _installedApps.value.map { it.packageName }.toSet()
                 val packages = rulesMap.keys
-                if (knownPackages != null && packages != knownPackages) {
+                if (listed.isNotEmpty() && packages.isNotEmpty() && packages != listed) {
                     launch(Dispatchers.IO) { reloadInstalledApps() }
                 }
-                knownPackages = packages
             }
         }
 
@@ -224,11 +254,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _onDemandEvent.value = null
     }
 
-    private suspend fun reloadInstalledApps() {
+    private suspend fun reloadInstalledApps() = loadMutex.withLock {
+        // 1. Names (and any icons already cached): enough to show the list
         val apps = dataUsageRepo.loadInstalledApps()
         _installedApps.value = apps
-        _usageByUid.value = dataUsageRepo.loadUsageByUid(apps.map { it.uid })
+        _isLoadingApps.value = false
+
+        // 2. Usage numbers
+        val usage = dataUsageRepo.loadUsageByUid(apps.map { it.uid })
+        _usageByUid.value = usage
         _hasUsagePermission.value = dataUsageRepo.hasUsageStatsPermission()
+
+        // 3. Icons, busiest apps first, a batch at a time
+        val busiestFirst = apps.sortedByDescending { app ->
+            usage[app.uid]?.let { it.wifiBytesToday + it.mobileBytesToday } ?: 0L
+        }
+        dataUsageRepo.loadIconsProgressively(busiestFirst) { withIcons ->
+            // Publish in the original order so the list doesn't reshuffle as icons arrive
+            val byPackage = withIcons.associateBy { it.packageName }
+            _installedApps.value = apps.map { byPackage[it.packageName] ?: it }
+        }
     }
 
     private suspend fun refreshUsage() {
@@ -444,7 +489,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun syncDeltaInstalledApps() {
         viewModelScope.launch(Dispatchers.IO) {
-            firewallRepo.syncInstalledApps(blockMobileForNewApps = true)
+            firewallRepo.syncInstalledApps()
             // Also picks up a usage-access grant made in system settings
             refreshUsage()
         }
@@ -459,7 +504,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             _isRefreshing.value = true
             try {
-                firewallRepo.syncInstalledApps(blockMobileForNewApps = true)
+                firewallRepo.syncInstalledApps()
                 dataUsageRepo.clearIconCache()
                 reloadInstalledApps()
                 _weeklyHistory.value = dataUsageRepo.get7DayUsageHistory()
