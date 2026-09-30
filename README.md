@@ -10,12 +10,12 @@ A privacy-focused firewall for Android that controls internet access **per app**
 - **Schedules**: block selected apps (or all of them) during set times on set days, including overnight ranges like 22:00–06:30.
 - **Profiles**: one-tap presets such as Study/Work, Gaming, Battery Saver and Offline.
 - **Global lock**: cut off every app at once.
-- **Temporary access**: allow a blocked app for a limited time, from the "blocked" notification ("Allow 10 min") or the in-app prompt.
+- **Asked when you open a blocked app**: when you open an app the firewall is blocking (for example WhatsApp during Global Lock), a notification asks what to do: **Allow while open** (blocked again shortly after you close the app), **Allow 10 min**, or **Keep blocked**. Apps running in the background never trigger notifications. This needs Usage access.
 - **Pause**: switch blocking off for a set time; it turns back on automatically.
 - **Usage monitoring**: live network speed, per-app usage for today and this month, and a 7-day chart.
 - **Data-limit warnings**: notifications at 80%, 90% and 100% of an app's daily limit.
 - **Block log**: a record of blocked connection attempts, with destination address and port.
-- **New app handling**: newly installed apps are detected automatically and have mobile data blocked by default.
+- **New app handling**: newly installed apps are detected automatically and start with nothing blocked; you decide what to block.
 - **Backup**: export and import rules as JSON.
 - Light/dark theme with selectable accent colours.
 
@@ -30,7 +30,7 @@ Because it uses the VPN slot, it can't run at the same time as another VPN app.
 - Android 7.0 (API 24) or newer; targets Android 16 (API 36).
 - Permissions you grant when asked:
   - **VPN connection**: required for blocking.
-  - **Usage access** (optional): needed for accurate per-app usage numbers.
+  - **Usage access** (recommended): lets the app see which app is open, so it can ask when you open a blocked app; also gives accurate per-app usage numbers. Without it there are no prompts, and "Allow while open" becomes a 30-minute allowance.
   - **Notifications**: for blocked-attempt and data-limit alerts (Android 13+ asks when you first turn the firewall on; the firewall works without it).
   - **Alarms & reminders** (optional, Android 12+): lets schedules and timers switch on the exact minute; without it they may run a few minutes late.
 
@@ -69,7 +69,7 @@ Built with Kotlin, Jetpack Compose (Material 3), Room, DataStore and WorkManager
 
 ## Known limitations
 
-- On Android 9 and older, blocked attempts aren't logged when more than one app is blocked, because the system can't report which app sent a packet.
+- On Android 9 and older, when more than one app is blocked (including Global Lock), blocked attempts aren't logged and no prompt appears, because the system can't report which app sent a packet.
 - Rule export currently produces an empty list, and "allow for this session" doesn't expire yet.
 - Weekly and monthly data limits are saved but not enforced; daily limits send warnings but don't block.
 - Without usage access, per-app usage figures are estimates, and the 7-day chart shows placeholder data when no real data is available.
