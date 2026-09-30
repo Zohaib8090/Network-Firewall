@@ -10,11 +10,11 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "dev.zohaib.networkfirewall"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.networkfirewall.app"
+    applicationId = "dev.zohaib.networkfirewall"
     minSdk = 24
     targetSdk = 36
     versionCode = 1

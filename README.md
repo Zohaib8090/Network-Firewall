@@ -57,7 +57,7 @@ GitHub Actions runs the unit tests and builds a debug APK on every push and pull
 ## Project structure
 
 ```
-app/src/main/java/com/example/
+app/src/main/java/dev/zohaib/networkfirewall/
 ├── vpn/          FirewallVpnService (the firewall), packet parser, timers
 ├── data/         Room database (rules, schedules, block logs), DataStore settings, repositories
 ├── receiver/     Boot start, install/uninstall sync, notification actions, alarms

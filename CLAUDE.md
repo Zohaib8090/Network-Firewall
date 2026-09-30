@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Network-Firewall: a no-root Android firewall (Kotlin, Jetpack Compose, Room, DataStore, WorkManager) that blocks network access per app, separately for Wi-Fi and mobile data, using `VpnService`. Scaffolded from a Google AI Studio template, which is why the namespace is `com.example` and the application ID is `com.aistudio.networkfirewall.app`.
+Network-Firewall: a no-root Android firewall (Kotlin, Jetpack Compose, Room, DataStore, WorkManager) that blocks network access per app, separately for Wi-Fi and mobile data, using `VpnService`. The namespace (code package) and the application ID are both `dev.zohaib.networkfirewall`. They came from a Google AI Studio template as `com.example` and `com.aistudio.networkfirewall.app` and were changed on purpose; don't bring those back. Changing the application ID again would make Android treat the app as a different app (separate data, no in-place update), so only do it if the owner asks.
 
 ## Build and test
 
@@ -19,7 +19,7 @@ Network-Firewall: a no-root Android firewall (Kotlin, Jetpack Compose, Room, Dat
 
 ## Architecture
 
-All code lives under `app/src/main/java/com/example/`.
+All code lives under `app/src/main/java/dev/zohaib/networkfirewall/`.
 
 - `vpn/FirewallVpnService.kt`: the core of the app. `reconfigureVpn()` (serialized by a mutex) works out the set of blocked packages from app rules, active schedules, Global Lock and the pause setting. It then builds a tunnel with `addAllowedApplication` for **only the blocked apps**, routing IPv4 and IPv6, and a packet-drop loop discards their traffic. Unblocked apps never enter the tunnel.
   - `reload(context)` does nothing unless the service is running, and `reconfigureVpn()` tears down the tunnel if the user has the firewall switched off (`AppPreferences.isVpnEnabled`). Rule changes must never start the firewall by themselves.
@@ -46,7 +46,7 @@ All code lives under `app/src/main/java/com/example/`.
 
 - After changing anything that affects blocking (rules, schedules, preferences), call `FirewallVpnService.reload(context)`.
 - Robolectric Compose tests hang ("Compose did not get idle") when a text field sits inside a dialog window, whatever the graphics mode or clock settings. Test dialogs through their parts instead (see `DialogPartsTest`: `limitsToSave`, `TimeField`, `TimePickerDialog`). Robolectric can also register fake installed apps (`shadowOf(packageManager).installPackage`), see `FirewallRepositoryTest`.
-- Keep pure logic (parsing, time calculations, rule evaluation) out of Android classes so it can be unit-tested, as `PacketParser` and `FirewallTimers` are; tests go in `app/src/test/java/com/example/`.
+- Keep pure logic (parsing, time calculations, rule evaluation) out of Android classes so it can be unit-tested, as `PacketParser` and `FirewallTimers` are; tests go in `app/src/test/java/dev/zohaib/networkfirewall/`.
 - New apps start with **nothing blocked** (`syncInstalledApps`/`onPackageAdded`); only the user's own choices, profiles and schedules block anything. The owner asked for this after the old "block mobile data for every user app" default surprised them. Don't reintroduce a default block.
 - Several dependencies (Firebase AI/AppCheck, Retrofit, OkHttp, Moshi) come from the template and are unused. They add the INTERNET permission to the merged manifest despite the "zero internet" comment in `AndroidManifest.xml`.
 

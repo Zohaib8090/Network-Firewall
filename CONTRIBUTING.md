@@ -15,7 +15,7 @@ gradle :app:testDebugUnitTest
 
 - **Keep pull requests focused**: one fix or feature per pull request.
 - **Match the existing style**: Kotlin, Jetpack Compose, 4-space indentation, and the naming used in nearby code.
-- **Test the logic**: put parsing, time calculations and rule decisions in plain Kotlin classes (like `vpn/PacketParser.kt` and `vpn/FirewallTimers.kt`) and add tests in `app/src/test/java/com/example/`.
+- **Test the logic**: put parsing, time calculations and rule decisions in plain Kotlin classes (like `vpn/PacketParser.kt` and `vpn/FirewallTimers.kt`) and add tests in `app/src/test/java/dev/zohaib/networkfirewall/`.
 - **Re-apply rules after changes**: after changing anything that affects blocking (rules, schedules, settings), call `FirewallVpnService.reload(context)`.
 - **Be careful with the database**: the Room database uses destructive migration, so bumping its version **deletes users' rules**. If you change an entity, add a proper migration.
 - **Keep the UI smooth**: don't do PackageManager queries, icon loading or disk I/O on the main thread, and don't collect fast-changing state (like live speed) at the top of `MainScreen`.

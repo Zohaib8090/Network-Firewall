@@ -29,6 +29,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - "Allow while open" (formerly "Allow for this session") now ends by itself shortly after the app is closed. Before, it never ended.
 
 ### Changed
+- The app's package name is now `dev.zohaib.networkfirewall`, replacing the AI Studio template's `com.aistudio.networkfirewall.app` (application ID) and `com.example` (code package). Android sees this as a different app, so uninstall the old build before installing this one; settings and rules don't carry over.
 - The app is now called Network-Firewall everywhere it is shown (top bar, notification titles, the VPN name in Android settings, README and docs), matching the repository and the launcher label. It was shown as "Smart Network Guard" in places.
 - New app icon: a shield with Wi-Fi waves on the app's emerald green, including a monochrome version for Android 13+ themed icons.
 - Live network speed is only measured while the Monitoring tab is open.
