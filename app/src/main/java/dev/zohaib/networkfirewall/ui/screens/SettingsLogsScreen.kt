@@ -1,5 +1,8 @@
 package dev.zohaib.networkfirewall.ui.screens
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -63,7 +66,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.zohaib.networkfirewall.BuildConfig
 import dev.zohaib.networkfirewall.data.model.BlockLog
+import dev.zohaib.networkfirewall.data.update.UpdateChecker
+import dev.zohaib.networkfirewall.data.update.UpdateUiState
+import dev.zohaib.networkfirewall.ui.components.UpdateCard
 import dev.zohaib.networkfirewall.ui.theme.AccentAmber
 import dev.zohaib.networkfirewall.ui.theme.AccentCoral
 import dev.zohaib.networkfirewall.ui.theme.AccentCyan
@@ -88,6 +95,8 @@ fun SettingsLogsScreen(
     onSetThemeMode: (String) -> Unit,
     onSetAccentColor: (Int) -> Unit,
     onTempAccess: (String, Int) -> Unit,
+    updateState: UpdateUiState,
+    onCheckForUpdates: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -137,18 +146,37 @@ fun SettingsLogsScreen(
 
                     Column {
                         Text(
-                            text = "100% Local & Privacy-First",
+                            text = "Local & Privacy-First",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Network-Firewall has ZERO internet permissions. No tracking, no telemetry, and 0 KB network calls.",
+                            text = "No accounts, no tracking, no telemetry. Traffic from blocked apps is dropped on your phone and never sent anywhere. The app only goes online when you tap \"Check for updates\".",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
+        }
+
+        // App updates
+        item {
+            UpdateCard(
+                currentVersion = BuildConfig.VERSION_NAME,
+                state = updateState,
+                onCheck = onCheckForUpdates,
+                onOpenUrl = { url ->
+                    // Only github.com links are ever opened, whatever a response contained
+                    if (UpdateChecker.isGithubUrl(url)) {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        } catch (e: ActivityNotFoundException) {
+                            Toast.makeText(context, "No app can open this link", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            )
         }
 
         // Backup status banner

@@ -18,6 +18,9 @@ import dev.zohaib.networkfirewall.data.repository.InstalledApp
 import dev.zohaib.networkfirewall.data.repository.SpeedMetrics
 import dev.zohaib.networkfirewall.data.repository.UidUsage
 import dev.zohaib.networkfirewall.data.repository.buildAppUsageList
+import dev.zohaib.networkfirewall.BuildConfig
+import dev.zohaib.networkfirewall.data.update.UpdateChecker
+import dev.zohaib.networkfirewall.data.update.UpdateUiState
 import dev.zohaib.networkfirewall.service.ScheduleWorker
 import dev.zohaib.networkfirewall.vpn.BlockedAttemptEvent
 import dev.zohaib.networkfirewall.vpn.FirewallVpnService
@@ -177,6 +180,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val loadMutex = Mutex()
 
+    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+
     init {
         // Schedule periodic check
         ScheduleWorker.schedulePeriodicCheck(application)
@@ -244,6 +250,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSelectedFilter(filter: AppFilter) {
         _selectedFilter.value = filter
+    }
+
+    /** Asks GitHub for the newest release. Runs only when the user taps "Check for updates". */
+    fun checkForUpdates() {
+        if (_updateState.value is UpdateUiState.Checking) return
+        _updateState.value = UpdateUiState.Checking
+        viewModelScope.launch(Dispatchers.IO) {
+            _updateState.value = UpdateUiState.Done(UpdateChecker(BuildConfig.VERSION_NAME).check())
+        }
     }
 
     fun dismissStopReason() {

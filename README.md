@@ -2,7 +2,7 @@
 
 # Network-Firewall
 
-A privacy-focused firewall for Android that controls internet access **per app**, separately for **Wi-Fi** and **mobile data**. It doesn't need root: it uses Android's built-in `VpnService` locally on the device, and no traffic is sent to any server.
+A privacy-focused firewall for Android that controls internet access **per app**, separately for **Wi-Fi** and **mobile data**. It doesn't need root: it uses Android's built-in `VpnService` locally on the device: traffic from blocked apps is dropped there and nothing is forwarded to any server.
 
 ## Features
 
@@ -17,6 +17,7 @@ A privacy-focused firewall for Android that controls internet access **per app**
 - **Block log**: a record of blocked connection attempts, with destination address and port.
 - **New app handling**: newly installed apps are detected automatically and start with nothing blocked; you decide what to block.
 - **Backup**: export and import rules as JSON.
+- **Update check**: Settings → **Check for updates** asks GitHub for the newest release and links to its download. This is the only time the app goes online, and only when you tap the button.
 - Light/dark theme with selectable accent colours.
 
 ## How it works
@@ -53,6 +54,19 @@ The repository doesn't include the Gradle wrapper script, so use a local Gradle 
    ```
 
 GitHub Actions runs the unit tests and builds a debug APK on every push and pull request to `main` (see `.github/workflows/build_apk.yml`); two APKs are attached to each run: `app-release` (optimised, use this one) and `app-debug`. Judge performance on the release build (`gradle :app:assembleRelease`, or the `app-release` artifact): debug builds of Jetpack Compose apps are several times slower to scroll. Release builds are signed with the debug key unless you provide an upload key via `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD`.
+
+## Publishing a release
+
+Push a version tag and GitHub builds and publishes the release for you (`.github/workflows/release.yml`):
+
+```sh
+git tag v1.1
+git push origin v1.1
+```
+
+The tag `v1.1` becomes the app's version `1.1`, the optimised APK is attached to the release, and the app's **Check for updates** button will then offer it. The app only offers a release whose version is higher than the installed one.
+
+Android installs an update over the installed app only when both are signed with the same key. Builds made without your own upload key are signed with a temporary debug key that differs from build to build, so until a fixed key is set up, installing a newer build means uninstalling the old one first.
 
 ## Project structure
 

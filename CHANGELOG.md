@@ -37,6 +37,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - Live network speed is only measured while the Monitoring tab is open.
 
 ### Added
+- Settings → **Check for updates**. Tap the button to ask GitHub for the newest release: the app says whether you're up to date, or shows the new version with its notes and a link to download it. It never checks on its own. This needed the internet permission, so the Settings text that said the app had "ZERO internet permissions" (which was already untrue, because of unused template libraries) now says what is true.
+- Publishing releases: pushing a version tag such as `v1.1` builds the optimised APK and publishes it as a GitHub Release (`release.yml`), with the tag as the app's version number.
 - README, license (MIT), contributing guide, security policy, changelog, and GitHub issue/pull request templates.
 - Unit tests for packet parsing, timers, the app list, the time picker parts, the firewall's revoke handling, what gets blocked, which app is in front, when "allow while open" ends, and the no-default-blocking rule.
 

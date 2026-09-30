@@ -353,6 +353,7 @@ fun MainScreen(
                 3 -> {
                     // Collected here, not at the top, so the log is only queried while this tab is open
                     val recentLogs by viewModel.recentLogs.collectAsStateWithLifecycle()
+                    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
                     SettingsLogsScreen(
                         recentLogs = recentLogs,
                         themeMode = themeMode,
@@ -365,7 +366,9 @@ fun MainScreen(
                         onClearBackupStatus = { viewModel.clearBackupStatus() },
                         onSetThemeMode = { mode -> viewModel.setThemeMode(mode) },
                         onSetAccentColor = { index -> viewModel.setAccentColor(index) },
-                        onTempAccess = { pkg, min -> viewModel.setTemporaryAccess(pkg, min) }
+                        onTempAccess = { pkg, min -> viewModel.setTemporaryAccess(pkg, min) },
+                        updateState = updateState,
+                        onCheckForUpdates = { viewModel.checkForUpdates() }
                     )
                 }
             }
