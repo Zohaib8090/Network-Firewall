@@ -175,7 +175,7 @@ fun AppRuleItem(
                     }
 
                     Text(
-                        text = "Today: ${appUsage.totalFormattedToday} (Wi-Fi: ${appUsage.wifiFormattedToday}, Cell: ${appUsage.mobileFormattedToday})",
+                        text = appUsage.usageSummaryToday,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

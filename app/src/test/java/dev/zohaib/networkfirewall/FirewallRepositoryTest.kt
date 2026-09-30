@@ -5,6 +5,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import androidx.test.core.app.ApplicationProvider
 import dev.zohaib.networkfirewall.data.db.AppDatabase
+import dev.zohaib.networkfirewall.data.model.BlockLog
 import dev.zohaib.networkfirewall.data.repository.FirewallRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -85,5 +86,27 @@ class FirewallRepositoryTest {
 
         val rule = rules().first { it.packageName == "com.example.newapp" }
         assertEquals(false to false, rule.isWifiBlocked to rule.isMobileBlocked)
+    }
+
+    @Test
+    fun `keepNewest trims the block log to the newest entries`() = runBlocking {
+        val dao = db.blockLogDao()
+        for (t in 1L..5L) {
+            dao.insertLog(BlockLog(packageName = "a", appName = "A", timestamp = t, networkType = "WIFI", reason = "test"))
+        }
+
+        dao.keepNewest(2)
+
+        assertEquals(listOf(5L, 4L), dao.getRecentLogs(100).first().map { it.timestamp })
+    }
+
+    @Test
+    fun `keepNewest leaves a small log alone`() = runBlocking {
+        val dao = db.blockLogDao()
+        dao.insertLog(BlockLog(packageName = "a", appName = "A", timestamp = 1, networkType = "WIFI", reason = "test"))
+
+        dao.keepNewest(2000)
+
+        assertEquals(1, dao.getRecentLogs(100).first().size)
     }
 }

@@ -18,14 +18,18 @@ data class AppUsageInfo(
     val currentTxSpeedBytesPerSec: Long = 0L,
     val rule: AppRule = AppRule(packageName = packageName, appName = appName, isSystemApp = isSystemApp)
 ) {
-    val totalFormattedToday: String
-        get() = formatBytes(totalBytesToday)
+    // Formatting uses String.format, which is slow; build each text once per instance instead of on
+    // every redraw while the list scrolls.
+    val totalFormattedToday: String by lazy(LazyThreadSafetyMode.NONE) { formatBytes(totalBytesToday) }
 
-    val wifiFormattedToday: String
-        get() = formatBytes(wifiBytesToday)
+    val wifiFormattedToday: String by lazy(LazyThreadSafetyMode.NONE) { formatBytes(wifiBytesToday) }
 
-    val mobileFormattedToday: String
-        get() = formatBytes(mobileBytesToday)
+    val mobileFormattedToday: String by lazy(LazyThreadSafetyMode.NONE) { formatBytes(mobileBytesToday) }
+
+    /** The usage line shown in each list row. */
+    val usageSummaryToday: String by lazy(LazyThreadSafetyMode.NONE) {
+        "Today: $totalFormattedToday (Wi-Fi: $wifiFormattedToday, Cell: $mobileFormattedToday)"
+    }
 
     companion object {
         fun formatBytes(bytes: Long): String {

@@ -28,6 +28,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - "Allow 10 min" and "Allow while open" now actually work during Global Lock and scheduled blocks (they were ignored there).
 - "Allow while open" (formerly "Allow for this session") now ends by itself shortly after the app is closed. Before, it never ended.
 
+- Scrolling the app list was laggy. Two causes were found: GitHub only built the slow debug version, so it now also builds an optimised release version (`app-release`, about 3 MB instead of 23 MB) that you should use; and the block log was written to constantly, never cleaned up, and watched by the main screen at all times, so the database kept re-reading a growing table while you scrolled. The log is now written far less often (background apps once a minute), capped at the newest 2000 entries, and only read while the Logs tab is open. The usage text in each row is also computed once instead of on every redraw.
+
 ### Changed
 - The app's package name is now `dev.zohaib.networkfirewall`, replacing the AI Studio template's `com.aistudio.networkfirewall.app` (application ID) and `com.example` (code package). Android sees this as a different app, so uninstall the old build before installing this one; settings and rules don't carry over.
 - The app is now called Network-Firewall everywhere it is shown (top bar, notification titles, the VPN name in Android settings, README and docs), matching the repository and the launcher label. It was shown as "Smart Network Guard" in places.

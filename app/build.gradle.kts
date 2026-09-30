@@ -50,9 +50,15 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      // R8 is what makes Compose lists smooth; debug builds are much slower to scroll
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfigs.findByName("release")?.let { signingConfig = it }
+      // The real upload key when present; otherwise the debug key, so the APK is still installable
+      // for testing. Publishing needs the real key (KEYSTORE_PATH, STORE_PASSWORD, KEY_PASSWORD).
+      signingConfig = signingConfigs.findByName("release")
+        ?: signingConfigs.findByName("debugConfig")
+        ?: signingConfigs.getByName("debug")
     }
     debug { signingConfigs.findByName("debugConfig")?.let { signingConfig = it } }
   }

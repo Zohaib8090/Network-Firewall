@@ -52,7 +52,7 @@ The repository doesn't include the Gradle wrapper script, so use a local Gradle 
    gradle :app:testDebugUnitTest
    ```
 
-GitHub Actions runs the unit tests and builds a debug APK on every push and pull request to `main` (see `.github/workflows/build_apk.yml`); the APK is attached to each run as the `app-debug` artifact. For judging performance, use a release build: debug builds of Jetpack Compose apps are noticeably slower.
+GitHub Actions runs the unit tests and builds a debug APK on every push and pull request to `main` (see `.github/workflows/build_apk.yml`); two APKs are attached to each run: `app-release` (optimised, use this one) and `app-debug`. Judge performance on the release build (`gradle :app:assembleRelease`, or the `app-release` artifact): debug builds of Jetpack Compose apps are several times slower to scroll. Release builds are signed with the debug key unless you provide an upload key via `KEYSTORE_PATH`, `STORE_PASSWORD` and `KEY_PASSWORD`.
 
 ## Project structure
 

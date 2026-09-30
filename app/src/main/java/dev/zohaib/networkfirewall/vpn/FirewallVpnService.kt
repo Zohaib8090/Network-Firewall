@@ -63,7 +63,7 @@ class FirewallVpnService : VpnService() {
     private var foregroundJob: Job? = null
 
     private val recentBlockedAlertTimestamps = ConcurrentHashMap<String, Long>()
-    private val recentBlockLogTimestamps = ConcurrentHashMap<String, Long>()
+    private val blockLogThrottle = BlockLogThrottle()
 
     // Tracks the default network, which for this app is always the underlying one because
     // the app itself is never routed into its own tunnel. VPN networks are ignored so that
@@ -341,44 +341,37 @@ class FirewallVpnService : VpnService() {
 
     private suspend fun handleBlockedAttempt(packageName: String, destIp: String, destPort: Int) {
         val now = System.currentTimeMillis()
+        val front = foregroundPackage
+        val isFront = front != null && front == packageName
 
-        // Apps retry constantly while blocked; record each destination at most once per window
-        val logKey = "$packageName|$destIp|$destPort"
-        val lastLogged = recentBlockLogTimestamps[logKey] ?: 0L
-        if (now - lastLogged < BLOCK_LOG_THROTTLE_MS) return
-        recentBlockLogTimestamps[logKey] = now
-        if (recentBlockLogTimestamps.size > 1000) {
-            recentBlockLogTimestamps.entries.removeAll { now - it.value >= BLOCK_LOG_THROTTLE_MS }
+        val appName by lazy(LazyThreadSafetyMode.NONE) {
+            try {
+                val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                packageManager.getApplicationLabel(appInfo).toString()
+            } catch (e: Exception) {
+                packageName
+            }
         }
 
-        val lastAlert = recentBlockedAlertTimestamps[packageName] ?: 0L
-        val pm = packageManager
-        val appName = try {
-            val appInfo = pm.getApplicationInfo(packageName, 0)
-            pm.getApplicationLabel(appInfo).toString()
-        } catch (e: Exception) {
-            packageName
-        }
-
-        val netType = if (isCurrentWifi) "WIFI" else "CELLULAR"
-
-        // Record in Database
-        database.blockLogDao().insertLog(
-            BlockLog(
-                packageName = packageName,
-                appName = appName,
-                timestamp = now,
-                networkType = netType,
-                reason = if (_vpnState.value == VpnStatus.GLOBAL_LOCKED) "Global Lock" else "Firewall Rule",
-                ipAddress = destIp,
-                port = destPort
+        // Apps retry constantly while blocked, so most attempts are not written down
+        if (blockLogThrottle.shouldLog(packageName, destIp, destPort, isFront, now)) {
+            database.blockLogDao().insertLog(
+                BlockLog(
+                    packageName = packageName,
+                    appName = appName,
+                    timestamp = now,
+                    networkType = if (isCurrentWifi) "WIFI" else "CELLULAR",
+                    reason = if (_vpnState.value == VpnStatus.GLOBAL_LOCKED) "Global Lock" else "Firewall Rule",
+                    ipAddress = destIp,
+                    port = destPort
+                )
             )
-        )
+        }
 
         // Only the app the user is using right now gets a prompt. Traffic from blocked apps in the
         // background (every app, during Global Lock) is logged above but never notifies.
-        val front = foregroundPackage
-        if (front == null || front != packageName || packageName in promptSuppressed) return
+        if (!isFront || packageName in promptSuppressed) return
+        val lastAlert = recentBlockedAlertTimestamps[packageName] ?: 0L
         if (now - lastAlert < PROMPT_THROTTLE_MS) return
         recentBlockedAlertTimestamps[packageName] = now
         if (appPreferences.notifyBlockedAttempts.first()) {
@@ -452,8 +445,15 @@ class FirewallVpnService : VpnService() {
         foregroundJob = serviceScope.launch {
             val tracker = ForegroundTracker(getSystemService(UsageStatsManager::class.java))
             val sessionPolicy = SessionEndPolicy(SESSION_END_GRACE_MS, SESSION_NEVER_OPENED_TIMEOUT_MS)
+            var lastLogTrim = 0L
             while (isActive) {
                 try {
+                    // Keep the block log small so reading it never slows the phone down
+                    if (System.currentTimeMillis() - lastLogTrim >= LOG_TRIM_INTERVAL_MS) {
+                        database.blockLogDao().keepNewest(MAX_LOG_ROWS)
+                        lastLogTrim = System.currentTimeMillis()
+                    }
+
                     if (!UsageAccess.isGranted(this@FirewallVpnService)) {
                         foregroundPackage = null
                         // No way to see an app close, so no "while open" allowance can end by itself
@@ -612,7 +612,8 @@ class FirewallVpnService : VpnService() {
         private const val VPN_ADDRESS_V4 = "10.255.255.1"
         private const val VPN_ADDRESS_V6 = "fd00:ff:ff::1"
 
-        private const val BLOCK_LOG_THROTTLE_MS = 10_000L
+        private const val MAX_LOG_ROWS = 2_000
+        private const val LOG_TRIM_INTERVAL_MS = 60_000L
         private const val PROMPT_THROTTLE_MS = 30_000L
         private const val PROMPT_TIMEOUT_MS = 2 * 60 * 1000L
         private const val FOREGROUND_POLL_MS = 2_000L

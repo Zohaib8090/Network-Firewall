@@ -112,7 +112,6 @@ fun MainScreen(
     val hasUsagePermission by viewModel.hasUsagePermission.collectAsStateWithLifecycle()
 
     val schedules by viewModel.schedules.collectAsStateWithLifecycle()
-    val recentLogs by viewModel.recentLogs.collectAsStateWithLifecycle()
     val blockedCount by viewModel.blockedCount.collectAsStateWithLifecycle()
     val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
     val onDemandEvent by viewModel.onDemandEvent.collectAsStateWithLifecycle()
@@ -351,20 +350,24 @@ fun MainScreen(
                     onToggleSchedule = { id, enabled -> viewModel.toggleSchedule(id, enabled) },
                     onDeleteSchedule = { id -> viewModel.deleteSchedule(id) }
                 )
-                3 -> SettingsLogsScreen(
-                    recentLogs = recentLogs,
-                    themeMode = themeMode,
-                    accentIndex = accentIndex,
-                    backupStatus = backupStatus,
-                    onClearLogs = { viewModel.clearBlockLogs() },
-                    onResetAllRules = { viewModel.resetAllRulesToDefault() },
-                    onExportRules = { viewModel.exportRules() },
-                    onImportRules = { json -> viewModel.importRules(json) },
-                    onClearBackupStatus = { viewModel.clearBackupStatus() },
-                    onSetThemeMode = { mode -> viewModel.setThemeMode(mode) },
-                    onSetAccentColor = { index -> viewModel.setAccentColor(index) },
-                    onTempAccess = { pkg, min -> viewModel.setTemporaryAccess(pkg, min) }
-                )
+                3 -> {
+                    // Collected here, not at the top, so the log is only queried while this tab is open
+                    val recentLogs by viewModel.recentLogs.collectAsStateWithLifecycle()
+                    SettingsLogsScreen(
+                        recentLogs = recentLogs,
+                        themeMode = themeMode,
+                        accentIndex = accentIndex,
+                        backupStatus = backupStatus,
+                        onClearLogs = { viewModel.clearBlockLogs() },
+                        onResetAllRules = { viewModel.resetAllRulesToDefault() },
+                        onExportRules = { viewModel.exportRules() },
+                        onImportRules = { json -> viewModel.importRules(json) },
+                        onClearBackupStatus = { viewModel.clearBackupStatus() },
+                        onSetThemeMode = { mode -> viewModel.setThemeMode(mode) },
+                        onSetAccentColor = { index -> viewModel.setAccentColor(index) },
+                        onTempAccess = { pkg, min -> viewModel.setTemporaryAccess(pkg, min) }
+                    )
+                }
             }
         }
     }

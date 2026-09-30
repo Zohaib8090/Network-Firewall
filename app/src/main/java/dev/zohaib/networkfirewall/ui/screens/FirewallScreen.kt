@@ -347,7 +347,7 @@ fun FirewallScreen(
         }
 
         // App Rules List
-        items(appUsages, key = { it.packageName }) { app ->
+        items(appUsages, key = { it.packageName }, contentType = { "app_rule" }) { app ->
             AppRuleItem(
                 appUsage = app,
                 onToggleWifi = { blocked -> onToggleWifi(app.packageName, blocked) },
